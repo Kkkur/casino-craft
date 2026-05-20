@@ -1,82 +1,73 @@
+-- ========================================================================== --
+--  Player Detector
+--  Manages player proximity tracking for machine interaction.
+-- ========================================================================== --
+
 local PlayerDetector = {}
 
-local IDLE_TIMEOUT = 120
+local detector      = nil
+local currentPlayer = nil
+local lastActivity  = 0
+local IDLE_TIMEOUT  = 120
 
--- Internal state 
-local detector       = nil   -- the peripheral
-local currentPlayer  = nil   -- username string or nil
-local lastActivity   = 0     -- os.clock() of last click
+-- -------------------------------------------------------------------------- --
+-- Initialization
+-- -------------------------------------------------------------------------- --
 
--- Init using the passed name from config
 function PlayerDetector.init(detectorName)
     if not detectorName or detectorName == "none" then
-        print("[PlayerDetector] Disabled via config.")
         return false
     end
 
-    if peripheral.isPresent(detectorName) then
-        detector = peripheral.wrap(detectorName)
-    else
-        -- Fallback search if the specified network name isn't live right now
-        detector = peripheral.find("playerDetector")
-    end
-
+    detector = peripheral.wrap(detectorName) or peripheral.find("playerDetector")
     if not detector then
-        print("[PlayerDetector] WARNING: Specified peripheral '" .. tostring(detectorName) .. "' not found. Tracking disabled.")
+        print("[PlayerDetector] Warning: Peripheral not found.")
         return false
     end
 
-    print("[PlayerDetector] Ready. Peripheral: " .. peripheral.getName(detector))
+    print("[PlayerDetector] Ready. Binding: " .. peripheral.getName(detector))
     return true
 end
 
--- Current player access 
-function PlayerDetector.getCurrentPlayer()
-    return currentPlayer
-end
+-- -------------------------------------------------------------------------- --
+-- Accessors
+-- -------------------------------------------------------------------------- --
 
-function PlayerDetector.clearPlayer()
-    currentPlayer = nil
-end
+function PlayerDetector.getCurrentPlayer() return currentPlayer end
+function PlayerDetector.clearPlayer()     currentPlayer = nil end
+function PlayerDetector.isAvailable()     return detector ~= nil end
 
-function PlayerDetector.isAvailable()
-    return detector ~= nil
-end
+-- -------------------------------------------------------------------------- --
+-- Tracking Logic
+-- -------------------------------------------------------------------------- --
 
--- Check if player is still nearby 
 function PlayerDetector.isNearby(username, range)
     if not detector or not username then return false end
-    range = range or 5
-    local ok, result = pcall(detector.isPlayerInRange, range, username)
+    local ok, result = pcall(detector.isPlayerInRange, range or 5, username)
     return ok and result == true
 end
 
--- Get all players currently near the machine
 function PlayerDetector.getPlayersNearby(range)
     if not detector then return {} end
-    range = range or 5
-    local ok, result = pcall(detector.getPlayersInRange, range)
-    return (ok and result) or {}
+    local ok, players = pcall(detector.getPlayersInRange, range or 5)
+    return (ok and players) or {}
 end
 
--- Gets the single closest player name within range (used by bj_machine's asynchronous listener)
 function PlayerDetector.getClosestPlayer(range)
     if not detector then return nil end
-    range = range or 5
-    
-    local ok, players = pcall(detector.getPlayersInRange, range)
-    if not ok or not players or #players == 0 then 
-        return nil 
-    end
-    
-    -- advancedperipherals returns a list of names. The first index is typically the closest.
-    return players[1]
+    local ok, players = pcall(detector.getPlayersInRange, range or 5)
+    return (ok and players and players[1]) or nil
 end
 
--- Listener thread 
+-- -------------------------------------------------------------------------- --
+-- Listener Loop
+-- -------------------------------------------------------------------------- --
+
 function PlayerDetector.listenerThread(shared, onPlayerChange)
     while not (shared and shared.shutdown) do
-        local event, username, device = os.pullEvent()
+        local evData = {os.pullEvent()}
+        local event  = evData[1]
+        local username = evData[2]
 
         if event == "playerClick" and type(username) == "string" then
             local old = currentPlayer
@@ -84,21 +75,15 @@ function PlayerDetector.listenerThread(shared, onPlayerChange)
             lastActivity  = os.clock()
 
             if username ~= old then
-                print("[PlayerDetector] Player seated: " .. username)
-                if onPlayerChange then
-                    pcall(onPlayerChange, username, old)
-                end
+                if onPlayerChange then pcall(onPlayerChange, username, old) end
             end
 
-        elseif event == "timer" or event == "key" or event == "monitor_touch" then
-            if currentPlayer
-            and not (shared and shared.gameActive)
-            and (os.clock() - lastActivity) > IDLE_TIMEOUT then
-                local old = currentPlayer
-                currentPlayer = nil
-                print("[PlayerDetector] Idle timeout — cleared player: " .. old)
-                if onPlayerChange then
-                    pcall(onPlayerChange, nil, old)
+        elseif event == "timer" or event == "monitor_touch" then
+            if currentPlayer and not (shared and shared.gameActive) then
+                if (os.clock() - lastActivity) > IDLE_TIMEOUT then
+                    local old = currentPlayer
+                    currentPlayer = nil
+                    if onPlayerChange then pcall(onPlayerChange, nil, old) end
                 end
             end
         end

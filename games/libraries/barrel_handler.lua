@@ -1,74 +1,74 @@
--- barrel_handler.lua
--- Handles all chip movement between barrels on the wired network.
---
--- How to use:
---   local Barrel = dofile("../libraries/barrel_handler.lua")
---   Barrel.init("minecraft:barrel_2", "minecraft:barrel_5")
---   local chips = Barrel.countPlayerChips()
---   Barrel.takeBet(2)
---   Barrel.returnToPlayer(4)
+-- ========================================================================== --
+--  Barrel Handler
+--  Manages chip transactions between player deposit and casino reserves.
+-- ========================================================================== --
 
 local Barrel = {}
 
-local playerBarrelName = nil
-local sharedBarrelName = nil
-local playerBarrel     = nil
-local sharedBarrel     = nil
+local pName, sName
+local pBarrel, sBarrel
+local COIN_ID = "createdeco:brass_coin"
 
--- Call this once on startup with the two barrel peripheral names.
--- playerName is the deposit barrel the player puts chips into.
--- sharedName is the casino reserve barrel payouts come from.
+-- -------------------------------------------------------------------------- --
+-- Initialization
+-- -------------------------------------------------------------------------- --
+
 function Barrel.init(playerName, sharedName)
-    playerBarrelName = playerName
-    sharedBarrelName = sharedName
-    playerBarrel     = peripheral.wrap(playerName)
-    sharedBarrel     = peripheral.wrap(sharedName)
-    assert(playerBarrel, "Player barrel not found: " .. tostring(playerName))
-    assert(sharedBarrel, "Shared barrel not found: " .. tostring(sharedName))
+    pName, sName = playerName, sharedName
+    pBarrel = peripheral.wrap(pName)
+    sBarrel = peripheral.wrap(sName)
+    
+    assert(pBarrel, "Player barrel not found: " .. tostring(pName))
+    assert(sBarrel, "Shared barrel not found: " .. tostring(sName))
 end
 
--- Counts how many brass coins are sitting in a given inventory peripheral.
+-- -------------------------------------------------------------------------- --
+-- Private Helpers
+-- -------------------------------------------------------------------------- --
+
 local function countCoins(inv)
     local total = 0
+    if not inv then return 0 end
     for _, stack in pairs(inv.list()) do
-        if stack.name == "createdeco:brass_coin" then
+        if stack.name == COIN_ID then
             total = total + stack.count
         end
     end
     return total
 end
 
--- Moves up to `amount` coins from srcName into dst inventory.
--- Returns how many were actually moved.
 local function moveCoins(dst, srcName, amount)
     local src = peripheral.wrap(srcName)
-    if not src then return 0 end
+    if not src or not dst then return 0 end
+    
     local moved = 0
     for slot, stack in pairs(src.list()) do
         if moved >= amount then break end
-        if stack.name == "createdeco:brass_coin" then
+        if stack.name == COIN_ID then
             local toMove = math.min(amount - moved, stack.count)
-            moved = moved + dst.pullItems(srcName, slot, toMove)
+            local result = dst.pullItems(srcName, slot, toMove)
+            moved = moved + result
         end
     end
     return moved
 end
 
--- Returns the current chip count in the player deposit barrel.
+-- -------------------------------------------------------------------------- --
+-- Public API
+-- -------------------------------------------------------------------------- --
+
 function Barrel.countPlayerChips()
-    return countCoins(playerBarrel)
+    return countCoins(pBarrel)
 end
 
--- Takes `amount` chips from the player barrel into the shared reserve.
--- Returns how many chips were actually moved.
 function Barrel.takeBet(amount)
-    return moveCoins(sharedBarrel, playerBarrelName, amount)
+    -- Moves coins from player barrel to reserve
+    return moveCoins(sBarrel, pName, amount)
 end
 
--- Returns `amount` chips from the shared reserve back to the player barrel.
--- Returns how many chips were actually moved.
 function Barrel.returnToPlayer(amount)
-    return moveCoins(playerBarrel, sharedBarrelName, amount)
+    -- Moves coins from reserve to player barrel
+    return moveCoins(pBarrel, sName, amount)
 end
 
 return Barrel
