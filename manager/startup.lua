@@ -1,7 +1,7 @@
 -- startup.lua
 -- Auto-updater: deletes and re-fetches all files from GitHub, then launches manager.lua
 
-local BASE_URL = "https://raw.githubusercontent.com/Kkkur/casino-craft/refs/heads/feature/manager-autoupdater/manager/"
+local BASE_URL = "https://raw.githubusercontent.com/Kkkur/casino-craft/refs/heads/feature/libraries/manager/"
 
 local FILES = {
     "manager.lua",

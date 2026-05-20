@@ -1,8 +1,24 @@
 -- leaderboard_display.lua
--- Runs on the RELAY PC. Receives leaderboard
+-- Runs on the RELAY PC. Receives leaderboard data from the manager PC.
+-- Reads manager ID from config.json written by bootstrap_leaderboard.lua.
 
-local PROTOCOL   = "CASINO_LEADERBOARD"
-local MON_NAME   = nil   
+local PROTOCOL    = "CASINO_LEADERBOARD"
+local CONFIG_FILE = "config.json"
+
+-- Load config
+local cfg = {}
+if fs.exists(CONFIG_FILE) then
+    local f = io.open(CONFIG_FILE, "r")
+    if f then
+        local raw = f:read("*a")
+        f:close()
+        local ok, data = pcall(textutils.unserialiseJSON, raw)
+        if ok and type(data) == "table" then cfg = data end
+    end
+end
+
+local MANAGER_ID = cfg.managerId  -- only accept messages from this ID
+local MON_NAME   = nil
 
 -- Color palette  
 local C = {
@@ -150,8 +166,9 @@ print("Leaderboard relay ready. Listening on protocol: " .. PROTOCOL)
 idle()
 
 while true do
-    local _, msg = rednet.receive(PROTOCOL, 30)
-    if msg and type(msg) == "table" and msg.type == "leaderboard_update" then
+    local senderId, msg = rednet.receive(PROTOCOL, 30)
+    if msg and type(msg) == "table" and msg.type == "leaderboard_update"
+       and (not MANAGER_ID or senderId == MANAGER_ID) then
         render(msg)
     else
         mon.setCursorPos(W - 7, H)
