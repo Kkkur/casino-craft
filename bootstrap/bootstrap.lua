@@ -151,7 +151,7 @@ local function setupConfig(cfg)
             log("Invalid detector number, aborting.")
             return nil
         end
-        cfg.playerDetector = "advancedperipherals:player_detector_" .. num
+        cfg.playerDetector = "player_detector_" .. num
         
         local found = false
         for _, name in ipairs(peripheral.getNames()) do
