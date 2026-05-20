@@ -1,4 +1,4 @@
--- startup.lua
+-- manager.lua
 -- Casino Manager 
 
 local Data        = require("data")
