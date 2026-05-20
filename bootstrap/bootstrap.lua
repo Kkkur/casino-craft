@@ -1,4 +1,3 @@
--- bootstrap.lua
 -- Lives at the root of every game machine as the default startup script.
 -- On first boot it walks you through setup and saves everything to machine_config.txt.
 -- On every boot after that it loads the saved config, wgets the latest files, and launches the game.
@@ -144,6 +143,27 @@ local function setupConfig(cfg)
         end
     end
 
+    -- Player Detector
+    if not cfg.playerDetector then
+        local num = ask("Player detector number (e.g. 1 for advancedperipherals:player_detector_1)")
+        num = tonumber(num)
+        if not num then
+            log("Invalid detector number, aborting.")
+            return nil
+        end
+        cfg.playerDetector = "advancedperipherals:player_detector_" .. num
+        
+        local found = false
+        for _, name in ipairs(peripheral.getNames()) do
+            if name == cfg.playerDetector then found = true; break end
+        end
+        if not found then
+            log("Warning: " .. cfg.playerDetector .. " not visible on network right now.")
+        else
+            log("Player detector confirmed: " .. cfg.playerDetector)
+        end
+    end
+
     -- Player deposit barrel
     if not cfg.playerBarrel then
         local num = ask("Deposit barrel number (e.g. 2 for minecraft:barrel_2)")
@@ -190,7 +210,7 @@ end
 
 -- Checks if any required config keys are missing and triggers re-ask for those only.
 local function validateConfig(cfg)
-    local required = { "managerId", "gameType", "label", "monitorSide", "playerBarrel", "sharedBarrel" }
+    local required = { "managerId", "gameType", "label", "monitorSide", "playerDetector", "playerBarrel", "sharedBarrel" }
     local missing = false
     for _, key in ipairs(required) do
         if not cfg[key] then
