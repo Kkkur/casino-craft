@@ -229,9 +229,8 @@ local function updateFiles(gameType)
     local failed = {}
     for _, path in ipairs(files) do
         log("Fetching: " .. path)
-        -- Store files locally using just their filename, flat in the working dir
-        local localName = path:match("[^/]+$")
-        if not download(path, localName) then
+        -- Save to the same relative path so dofile paths match the repo structure
+        if not download(path, path) then
             log("FAILED: " .. path)
             failed[#failed + 1] = path
         end
@@ -298,11 +297,10 @@ if not entry then
     return
 end
 
-local localEntry = entry:match("[^/]+$")
-if not fs.exists(localEntry) then
-    log("Entry file not found: " .. localEntry .. ", update may have failed.")
+if not fs.exists(entry) then
+    log("Entry file not found: " .. entry .. ", update may have failed.")
     return
 end
 
-log("Launching " .. localEntry .. "...")
-shell.run(localEntry)
+log("Launching " .. entry .. "...")
+shell.run(entry)
