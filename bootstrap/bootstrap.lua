@@ -4,7 +4,7 @@
 -- On every boot after that it loads the saved config, wgets the latest files, and launches the game.
 
 local CONFIG_FILE = "machine_config.txt"
-local BASE_URL    = "https://raw.githubusercontent.com/Kkkur/casino-craft/refs/heads/feature/manager-autoupdater/"
+local BASE_URL    = "https://raw.githubusercontent.com/Kkkur/casino-craft/refs/heads/feature/libraries/"
 
 -- Files each game type needs, relative to BASE_URL.
 -- Add new game types here as they are built.
