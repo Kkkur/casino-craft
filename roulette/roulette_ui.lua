@@ -263,7 +263,7 @@ local function drawRealWheel(activeNumber, phase, tick, payout, hasBets)
         statusStr = "SPINNING..."
         statusColor = C.chipGold
     elseif phase == "results" then 
-        statusStr = "CLICK ON ANY BUTTON TO RETRY"
+        statusStr = "CLICK ANYWHERE TO RESTART"
     end
     centreInZone(wx, wx + wheelW - 1, wy + wheelH + 1 , statusStr, statusColor, C.felt)
 end

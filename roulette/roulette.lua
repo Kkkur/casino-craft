@@ -2,16 +2,6 @@
 
 local ROULETTE = {}
 
-local MAX_BET_CHIPS = 10 
-
-local function getBetChipValue(val)
-    if val == 1 then return 1 end
-    if val == 2 then return 2 end
-    if val == 4 then return 4 end
-    if val == "max" then return MAX_BET_CHIPS end
-    return 0
-end
-
 local function checkBetWin(betKey, winningNum)
     if winningNum == 0 then
         return betKey == "0"
@@ -70,11 +60,12 @@ function ROULETTE.handleBetClick(state, betKey)
     if not current then       nextVal = 1
     elseif current == 1 then  nextVal = 2
     elseif current == 2 then  nextVal = 4
-    elseif current == 4 then  nextVal = "max"
+    elseif current == 4 then  nextVal = 10
     else                      nextVal = nil end
 
-    local oldCost = getBetChipValue(current)
-    local newCost = getBetChipValue(nextVal)
+    -- Use direct values now instead of passing through an adapter function
+    local oldCost = current or 0
+    local newCost = nextVal or 0
 
     -- 2. Calculate their "Total Available Wealth" for this specific slot
     local totalAvailableWealth = state.queueChips + oldCost
@@ -96,7 +87,7 @@ end
 function ROULETTE.clearBets(state)
     if state.phase ~= "betting" then return state end
     for betKey, val in pairs(state.bets) do
-        state.queueChips = state.queueChips + getBetChipValue(val)
+        state.queueChips = state.queueChips + (val or 0)
     end
     state.bets = {}
     return state
@@ -117,7 +108,7 @@ function ROULETTE.resolveGame(state)
     local winningNum = state.winningNumber
 
     for betKey, betVal in pairs(state.bets) do
-        local chipCount = getBetChipValue(betVal)
+        local chipCount = betVal or 0
         if chipCount > 0 and checkBetWin(betKey, winningNum) then
             local multiplier = getPayoutMultiplier(betKey)
             totalPayout = totalPayout + chipCount + (chipCount * multiplier)
