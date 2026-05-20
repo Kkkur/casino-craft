@@ -1,7 +1,7 @@
 -- startup.lua
 -- Auto-updater
 
-local BASE_URL = "https://github.com/Kkkur/casino-craft/blob/feature/manager-autoupdater/manager/"
+local BASE_URL = "https://raw.githubusercontent.com/Kkkur/casino-craft/refs/heads/feature/manager-autoupdater/manager/"
 
 local FILES = {
     -- core
@@ -26,6 +26,7 @@ local function ensureDir(path)
     for part in path:gmatch("[^/]+") do
         table.insert(parts, part)
     end
+    -- build each directory level except the last (filename)
     local current = ""
     for i = 1, #parts - 1 do
         current = current == "" and parts[i] or (current .. "/" .. parts[i])
@@ -75,8 +76,7 @@ else
     log("All files updated successfully.")
 end
 
--- REBOOT INTO MANAGER
+-- LAUNCH MANAGER
 
-log("Rebooting into manager.lua...")
-sleep(1)
-os.reboot()
+log("Launching manager.lua...")
+shell.run("manager.lua")
