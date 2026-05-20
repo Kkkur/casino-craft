@@ -2,7 +2,7 @@
 
 local ROULETTE_UI = {}
 
--- Colour palette (FIXED: Reverted all color keys to correct British spelling 'colours')
+-- Colour palette 
 local C = {
     bg         = colours.black,
     felt       = colours.green,
@@ -308,7 +308,8 @@ local function drawBottomPanel(canSpin, hasBets, state)
         if not hasBets then
             writeAt(rx + 10, panelY + 1, "  NO BETS", colours.lightGrey, C.header)
         else
-            local netProfit = (state.payout or 0) - totalBetAmount
+            -- FIXED: UI now reads `lastPayout` to match the core engine correctly!
+            local netProfit = (state.lastPayout or 0) - totalBetAmount
 
             if netProfit > 0 then
                 -- Pure Win
@@ -361,7 +362,9 @@ function ROULETTE_UI.draw(state)
 
     local activeNum = (phase == "spinning") and state.activeSpinNumber or state.winningNumber
     drawWidescreenBoard(bets)
-    drawRealWheel(activeNum, phase, state.spinTick or 0, state.payout, hasBets)
+    
+    -- FIXED: Pass `lastPayout` properly here just to be clean
+    drawRealWheel(activeNum, phase, state.spinTick or 0, state.lastPayout, hasBets)
     drawBottomPanel(queue >= 0, hasBets, state)
 end
 

@@ -1,5 +1,7 @@
--- Main roulette machine logic. Runs the game loop, handles wheel animations,
--- and coordinates with the manager via net_client, barrel_handler, and player_detector.
+-- ========================================================================== --
+--  Roulette Machine Controller
+--  Coordinates the game loop, UI animations, barrel I/O, and manager netcode.
+-- ========================================================================== --
 
 local ROULETTE    = dofile("games/roulette/roulette.lua")
 local ROULETTE_UI = dofile("games/roulette/roulette_ui.lua")
@@ -7,16 +9,30 @@ local Barrel      = dofile("games/libraries/barrel_handler.lua")
 local Net         = dofile("games/libraries/net_client.lua")
 local Det         = dofile("games/libraries/player_detector.lua")
 
--- Dynamic configuration populated entirely by machine_config.txt or the manager server
+-- -------------------------------------------------------------------------- --
+-- Configuration & State
+-- -------------------------------------------------------------------------- --
+
 local CFG = {
     managerId          = nil,
-    machineLabel       = "Roulette Wheel",  -- Fallback text used until network registration syncs
-    betAmount          = 2,                 -- Fallback value for base chip values
+    machineLabel       = "Roulette Wheel",
+    betAmount          = 2,
     playerBarrelName   = nil,
     sharedBarrelName   = nil,
     playerDetectorName = nil,
     monitorName        = nil,
 }
+
+local shared = {
+    queueChips = 0,
+    playerName = nil, 
+    gameActive = false,
+    shutdown   = false,
+}
+
+-- -------------------------------------------------------------------------- --
+-- Initialization
+-- -------------------------------------------------------------------------- --
 
 local function loadConfig()
     if not fs.exists("machine_config.txt") then 
@@ -40,26 +56,17 @@ local function loadConfig()
     f:close()
 end
 
-local shared = {
-    queueChips = 0,
-    playerName = nil, 
-    gameActive = false,
-    shutdown   = false,
-}
-
 local function initPeripherals()
-    -- Ensure required peripherals were supplied by the bootstrap file
-    assert(CFG.monitorName, "Critical Configuration Error: monitorSide is missing from machine_config.txt")
-    assert(CFG.playerBarrelName, "Critical Configuration Error: playerBarrel is missing from machine_config.txt")
-    assert(CFG.sharedBarrelName, "Critical Configuration Error: sharedBarrel is missing from machine_config.txt")
+    assert(CFG.monitorName, "Missing monitorSide in machine_config.txt")
+    assert(CFG.playerBarrelName, "Missing playerBarrel in machine_config.txt")
+    assert(CFG.sharedBarrelName, "Missing sharedBarrel in machine_config.txt")
 
     local mon = peripheral.wrap(CFG.monitorName)
-    assert(mon, "Peripheral Error: Monitor '" .. CFG.monitorName .. "' could not be found on the network.")
+    assert(mon, "Monitor '" .. CFG.monitorName .. "' not found on the network.")
+    
     ROULETTE_UI.init(mon)
-
     Barrel.init(CFG.playerBarrelName, CFG.sharedBarrelName)
 
-    -- Player detector configuration is optional or can be explicitly skipped by setting it to "none"
     if CFG.playerDetectorName and CFG.playerDetectorName ~= "none" then
         Det.init(CFG.playerDetectorName)
     end
@@ -67,12 +74,33 @@ local function initPeripherals()
     local modem = peripheral.find("modem", function(_, m)
         return m.isWireless and m.isWireless()
     end)
+    
     if modem and CFG.managerId then
         rednet.open(peripheral.getName(modem))
     end
 
     return mon
 end
+
+-- -------------------------------------------------------------------------- --
+-- Helper Functions
+-- -------------------------------------------------------------------------- --
+
+local function getLiveTotalBet(state)
+    local total = 0
+    if type(state.bets) == "table" then
+        for _, amt in pairs(state.bets) do
+            if type(amt) == "number" then 
+                total = total + amt 
+            end
+        end
+    end
+    return total
+end
+
+-- -------------------------------------------------------------------------- --
+-- Background Listeners
+-- -------------------------------------------------------------------------- --
 
 local function coinListener()
     while not shared.shutdown do
@@ -85,8 +113,7 @@ local function playerListener()
     if not CFG.playerDetectorName or CFG.playerDetectorName == "none" then return end
     
     while not shared.shutdown do
-        local currentUser = Det.getClosestPlayer(5)
-        shared.playerName = currentUser
+        shared.playerName = Det.getClosestPlayer(5)
         os.sleep(0.5) 
     end
 end
@@ -103,9 +130,11 @@ local function rednetListener()
     )
 end
 
+-- -------------------------------------------------------------------------- --
+-- Main Game Loop
+-- -------------------------------------------------------------------------- --
+
 local function gameLoop()
-    -- Instantiate roulette data components
-    -- Note: UI libraries are now fed through uiState models containing bankrolls and radar tracking
     local gameState = ROULETTE.newGame(0, "CasinoGuest")
     local strip = ROULETTE_UI.getWheelStrip()
     local currentWheelIndex = 1
@@ -113,7 +142,6 @@ local function gameLoop()
     local function refreshState()
         gameState.queueChips = shared.queueChips
         gameState.playerName = shared.playerName or "Guest"
-        -- Keep fallback internal limits tied together
         if gameState.balance ~= shared.queueChips then
             gameState.balance = shared.queueChips
         end
@@ -126,22 +154,19 @@ local function gameLoop()
         if gameState.phase == "spinning" then
             shared.gameActive = true
             
-            -- Extract total cumulative wagers committed on the board Layout Matrix before clearing
-            local totalWagered = ROULETTE.getTotalBet(gameState) or 0
+            local totalWagered = getLiveTotalBet(gameState)
+            local verifiedBet  = Barrel.takeBet(totalWagered)
             
-            -- Handle exact token mechanics via barrel wrappers
-            local verifiedBet = Barrel.takeBet(totalWagered)
-            
+            -- Guard condition: rollback table execution if coin counting mismatched
             if verifiedBet < totalWagered then
-                -- Guard condition: rollback table execution if coin counting mismatched
-                Net.log("warn", "Insufficent raw physical inventory chips inside barrel mechanism.")
+                Net.log("warn", "Insufficient physical chips inside barrel mechanism.")
                 ROULETTE.clearBets(gameState)
                 gameState.phase = "betting"
                 shared.gameActive = false
                 goto continue
             end
 
-            -- Find where the target winning number sits on the wheel array
+            -- Locate target number on the physical wheel strip
             local targetIdx = 1
             for idx, val in ipairs(strip) do
                 if val == gameState.winningNumber then 
@@ -151,19 +176,19 @@ local function gameLoop()
             end
 
             local fullRotationsSteps = #strip * 2
-            local distanceToTarget = (targetIdx - currentWheelIndex) % #strip
-            local totalSteps = fullRotationsSteps + distanceToTarget
+            local distanceToTarget   = (targetIdx - currentWheelIndex) % #strip
+            local totalSteps         = fullRotationsSteps + distanceToTarget
 
             -- Spin Animation Sequence
             for step = 1, totalSteps do
                 gameState.spinTick = step
-                currentWheelIndex = (currentWheelIndex % #strip) + 1
+                currentWheelIndex  = (currentWheelIndex % #strip) + 1
                 gameState.activeSpinNumber = strip[currentWheelIndex]
                 
                 refreshState()
                 ROULETTE_UI.draw(gameState)
 
-                -- Cinematic Brake Physics
+                -- Cinematic brake physics
                 local stepsRemaining = totalSteps - step
                 if stepsRemaining <= 15 then
                     local brakeFactor = 16 - stepsRemaining
@@ -173,31 +198,32 @@ local function gameLoop()
                 end
             end
 
+            -- Lock in final state
             currentWheelIndex = targetIdx
             gameState.activeSpinNumber = gameState.winningNumber
             
-            -- Process wins/losses values
-            local initialChips = gameState.balance
             ROULETTE.resolveGame(gameState)
             local netPayout = gameState.lastPayout or 0
             
             refreshState()
             ROULETTE_UI.draw(gameState)
 
-            -- Dispatch payouts through barrel automation if earnings exist
+            -- Dispatch payouts
             if netPayout > 0 then
                 Barrel.returnToPlayer(netPayout)
             end
 
-            -- Transmit hand metrics directly up to tracking telemetry
+            -- Transmit telemetry
             local loggingName = shared.playerName or "Unknown"
-            local logOutcome = (netPayout > totalWagered) and "win" or ((netPayout == totalWagered) and "push" or "loss")
-            Net.reportHand(logOutcome, totalWagered, loggingName)
+            local logOutcome  = (netPayout > totalWagered) and "win" or ((netPayout == totalWagered) and "push" or "loss")
             
+            Net.reportHand(logOutcome, totalWagered, loggingName)
             shared.gameActive = false
+
         else
-            -- Standard Event Touch Monitoring
+            -- Betting phase touch monitoring
             local event, side, x, y = os.pullEvent()
+            
             if event == "monitor_touch" then
                 if gameState.phase == "results" then
                     ROULETTE.resetTable(gameState)
@@ -205,19 +231,18 @@ local function gameLoop()
                     local action = ROULETTE_UI.hitTest(x, y)
                     if action then
                         if action:sub(1, 4) == "bet:" then
-                            -- Pass dynamic base amounts if configurations require alterations
                             ROULETTE.handleBetClick(gameState, action:sub(5), CFG.betAmount)
                         elseif action == "clear" then
                             ROULETTE.clearBets(gameState)
                         elseif action == "spin" then
-                            if ROULETTE.getTotalBet(gameState) > 0 then
+                            if getLiveTotalBet(gameState) > 0 then
                                 ROULETTE.startSpin(gameState)
                             end
                         end
                     end
                 end
             elseif event == "timer" then
-                -- Forces render loops to stay responsive even if player sits idle
+                -- Keeps the UI fresh for incoming players/chips while idle
                 refreshState()
                 ROULETTE_UI.draw(gameState)
             end
@@ -226,13 +251,15 @@ local function gameLoop()
     end
 end
 
+-- -------------------------------------------------------------------------- --
+-- Boot
+-- -------------------------------------------------------------------------- --
+
 local function main()
     math.randomseed(os.time())
-
     loadConfig()
 
     Net.init(CFG.managerId, "roulette", CFG.machineLabel)
-
     local mon = initPeripherals()
 
     mon.setBackgroundColor(colours.black)
@@ -253,10 +280,10 @@ local function main()
     os.sleep(1)
 
     parallel.waitForAny(
-        function() coinListener()   end,
-        function() playerListener() end, 
-        function() gameLoop()       end,
-        function() rednetListener() end
+        coinListener,
+        playerListener, 
+        gameLoop,
+        rednetListener
     )
 end
 

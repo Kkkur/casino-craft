@@ -11,7 +11,6 @@ local function checkBetWin(betKey, winningNum)
         return tonumber(betKey:sub(5)) == winningNum
     end
 
-    -- FIXED: Adjusted Red/Black evaluation to match your Parity Rule (Odd = Red, Even = Black)
     local isRed = (winningNum % 2 ~= 0)
 
     if betKey == "doz1"  then return winningNum >= 1  and winningNum <= 12 end
@@ -46,7 +45,7 @@ function ROULETTE.newGame(queueChips, playerName)
         winningNumber      = nil,
         activeSpinNumber   = nil, 
         spinTick           = 0,   
-        payout             = 0,
+        lastPayout         = 0,   -- FIXED: Renamed to match roulette_machine.lua
     }
 end
 
@@ -99,7 +98,7 @@ function ROULETTE.startSpin(state)
     state.activeSpinNumber = 0
     state.spinTick = 0
     state.phase = "spinning"
-    state.payout = 0
+    state.lastPayout = 0 -- FIXED
     return state
 end
 
@@ -111,11 +110,12 @@ function ROULETTE.resolveGame(state)
         local chipCount = betVal or 0
         if chipCount > 0 and checkBetWin(betKey, winningNum) then
             local multiplier = getPayoutMultiplier(betKey)
+            -- Note: Returns the original wager + the winnings (e.g. bet 1 on red -> get 2 back)
             totalPayout = totalPayout + chipCount + (chipCount * multiplier)
         end
     end
 
-    state.payout = totalPayout
+    state.lastPayout = totalPayout -- FIXED: Now roulette_machine.lua can read this value!
     state.queueChips = state.queueChips + totalPayout
     state.phase = "results"
     return state
@@ -127,7 +127,7 @@ function ROULETTE.resetTable(state)
     state.winningNumber = nil
     state.activeSpinNumber = nil
     state.spinTick = 0
-    state.payout = 0
+    state.lastPayout = 0 -- FIXED
     return state
 end
 
