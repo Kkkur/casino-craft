@@ -62,16 +62,20 @@ while true do
         -- Standard Event Touch Monitoring
         local event, side, x, y = os.pullEvent()
         if event == "monitor_touch" then
-            local action = ROULETTE_UI.hitTest(x, y)
-            if action then
-                if gameState.phase == "results" then
-                    ROULETTE.resetTable(gameState)
-                elseif action:sub(1, 4) == "bet:" then
-                    ROULETTE.handleBetClick(gameState, action:sub(5))
-                elseif action == "clear" then
-                    ROULETTE.clearBets(gameState)
-                elseif action == "spin" then
-                    ROULETTE.startSpin(gameState)
+            -- FIXED: If the game is over, intercept the touch immediately regardless of what was clicked
+            if gameState.phase == "results" then
+                ROULETTE.resetTable(gameState)
+            else
+                -- Otherwise, parse standard board navigation actions
+                local action = ROULETTE_UI.hitTest(x, y)
+                if action then
+                    if action:sub(1, 4) == "bet:" then
+                        ROULETTE.handleBetClick(gameState, action:sub(5))
+                    elseif action == "clear" then
+                        ROULETTE.clearBets(gameState)
+                    elseif action == "spin" then
+                        ROULETTE.startSpin(gameState)
+                    end
                 end
             end
         end
