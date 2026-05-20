@@ -1,12 +1,12 @@
 -- manager.lua
 -- Casino Manager 
 
-local Data        = require("data")
-local Net         = require("rednet_manager")
-local UI          = require("ui")
-local Logger      = require("logger")
-local Leaderboard = require("leaderboard")
-local Currency    = require("currency")
+local Data        = require("dependencies.data")
+local Net         = require("dependencies.rednet_manager")
+local UI          = require("dependencies.ui")
+local Logger      = require("dependencies.logger")
+local Leaderboard = require("dependencies.leaderboards.leaderboard")
+local Currency    = require("dependencies.currency")
 
 -- CONFIG
 
