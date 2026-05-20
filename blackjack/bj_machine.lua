@@ -2,10 +2,10 @@
 -- Main blackjack machine logic. Runs the game loop, talks to the monitor,
 -- and coordinates with the manager via net_client and barrel_handler.
 
-local BJ     = dofile("../blackjack/blackjack.lua")
-local UI     = dofile("../blackjack/bj_ui.lua")
-local Barrel = dofile("../games/libraries/barrel_handler.lua")
-local Net    = dofile("../games/libraries/net_client.lua")
+local BJ     = dofile("blackjack/blackjack.lua")
+local UI     = dofile("blackjack/bj_ui.lua")
+local Barrel = dofile("games/libraries/barrel_handler.lua")
+local Net    = dofile("games/libraries/net_client.lua")
 
 local CFG = {
     managerId        = nil,
