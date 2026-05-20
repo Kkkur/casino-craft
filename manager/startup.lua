@@ -1,7 +1,7 @@
 -- startup.lua
 -- Auto-updater
 
-local BASE_URL = "https://raw.githubusercontent.com/Kkkur/casino-craft/refs/heads/main/manager/"
+local BASE_URL = "https://github.com/Kkkur/casino-craft/blob/feature/manager-autoupdater/manager/"
 
 local FILES = {
     -- core
