@@ -12,6 +12,8 @@ local GAME_FILES = {
     blackjack = {
         "games/libraries/barrel_handler.lua",
         "games/libraries/net_client.lua",
+        "games/libraries/ui_lib.lua",
+        "games/libraries/player_detector.lua",
         "blackjack/blackjack.lua",
         "blackjack/bj_ui.lua",
         "blackjack/bj_machine.lua",
