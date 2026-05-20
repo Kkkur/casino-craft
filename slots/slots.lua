@@ -3,9 +3,7 @@
 local playerDetector = peripheral.find("player_detector")
 local monitor        = peripheral.find("monitor")
 
-local PROTOCOL = "bank_protocol"
-local HOSTNAME  = "bank_server"
-local BANK_TIMEOUT = 3
+local bank = require("lib.bank")
 
 monitor.setTextScale(0.5)
 
@@ -46,27 +44,9 @@ local reelResult    = { SYMBOLS[7], SYMBOLS[7], SYMBOLS[7] }
 local presets = {1, 5, 10, 25, 50}
 local buttons = {}
 
--- ── modem ────────────────────────────────────────────────────────────────────
-
-peripheral.find("modem", rednet.open)
-
--- ── bank comms ───────────────────────────────────────────────────────────────
-
-local function bankRequest(msg)
-  local serverId = rednet.lookup(PROTOCOL, HOSTNAME)
-  if not serverId then return nil end
-  rednet.send(serverId, msg, PROTOCOL)
-  local timeout = os.startTimer(BANK_TIMEOUT)
-  while true do
-    local ev, p1, p2 = os.pullEvent()
-    if ev == "rednet_message" and p1 == serverId then return p2 end
-    if ev == "timer" and p1 == timeout then return nil end
-  end
-end
-
 local function refreshCredits(player)
-  local reply = bankRequest({ action = "get", player = player })
-  if reply and reply.ok then cachedCredits = reply.balance end
+  local bal = bank.getBalance(player)
+  if bal then cachedCredits = bal end
 end
 
 local function getPlayerInRange()
@@ -298,14 +278,14 @@ local function doSpin(player)
   lastWin = 0
 
   -- deduct immediately
-  local reply = bankRequest({ action = "remove", player = player, amount = bet })
-  if not reply or not reply.ok then
+  local newBal, err = bank.remove(player, bet)
+  if not newBal then
     spinning = false
-    setFeedback("Bank error!", colors.red)
+    setFeedback(err == "insufficient" and "Insufficient credits!" or "Bank error!", colors.red)
     redraw(player)
     return
   end
-  cachedCredits = reply.balance
+  cachedCredits = newBal
 
   -- animate reels
   local results = { pick(), pick(), pick() }
@@ -343,8 +323,8 @@ local function doSpin(player)
   end
 
   if win > 0 then
-    bankRequest({ action = "add", player = player, amount = win })
-    cachedCredits = cachedCredits + win
+    local newBal = bank.add(player, win)
+    cachedCredits = newBal or (cachedCredits + win)
     lastWin  = win
     totalWon = totalWon + win
   end
