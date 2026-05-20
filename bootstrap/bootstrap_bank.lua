@@ -1,14 +1,10 @@
 -- bank/bootstrap.lua
 -- Single bootstrap for all bank machines.
--- On first boot: pick machine type, detect peripherals, download files, save config, write startup.
--- On subsequent boots: re-runs setup to refresh files and update config.
 
 local CONFIG_FILE = "bank_config.json"
 local BASE_URL    = "https://raw.githubusercontent.com/Kkkur/casino-craft/refs/heads/dev/dziksonn/"
 
--- ── machine type definitions ──────────────────────────────────────────────────
--- Each type declares exactly what files it needs, what peripherals to detect,
--- what extra config to ask for, and what file to launch on startup.
+-- machine type definitions 
 
 local MACHINE_TYPES = {
     {
@@ -16,7 +12,7 @@ local MACHINE_TYPES = {
         label   = "Bank Server",
         files   = {
             "bank/server.lua",
-            "lib/BankLib.lua",
+            "libraries/bank/BankLib.lua",
         },
         startup = "bank/server.lua",
         peripherals = {
@@ -55,7 +51,7 @@ local MACHINE_TYPES = {
         label   = "ATM Terminal",
         files   = {
             "bank/atm.lua",
-            "lib/BankLib.lua",
+            "libraries/bank/BankLib.lua",
         },
         startup = "bank/atm.lua",
         peripherals = {
@@ -117,7 +113,7 @@ local MACHINE_TYPES = {
         label   = "Baltop Display",
         files   = {
             "bank/server.lua",
-            "lib/BankLib.lua",
+            "libraries/bank/BankLib.lua",
         },
         startup = "bank/server.lua",
         peripherals = {
