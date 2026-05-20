@@ -116,13 +116,8 @@ local function drawWidescreenBoard(currentBets)
     local zeroW = 5 
 
     local function getBetLabel(val)
-        if not val or val == 0 or val == "none" then return "" end
-        if val == 1 then return "[1]" end
-        if val == 2 then return "[2]" end
-        if val == 4 then return "[4]" end
-        if val == "max" then return "[MX]" end
-        return ""
-    end
+        if not val or val == 0 or val == "none" then return ""
+        elseif val < 10 then return "[" .. val .. " ]" else return "[" .. val .. "]" end    end
 
     -- 1. Zero Box
     local zBetVal = currentBets["0"]
@@ -130,7 +125,7 @@ local function drawWidescreenBoard(currentBets)
     local zFg = zBetVal and C.btnText or C.text 
     local zBetStr = getBetLabel(zBetVal)
     
-    fill(startX, startY, zeroW, cellH * 3 + 2, zBg)
+    fill(startX, startY, zeroW, cellH * 3, zBg)
     centreInZone(startX, startX+zeroW-1, startY + 5, "0", zFg, zBg)
     if zBetStr ~= "" then
         centreInZone(startX, startX+zeroW-1, startY + 7, zBetStr, C.btnText, C.chipGold)
@@ -245,28 +240,20 @@ local function drawRealWheel(activeNumber, phase, tick, payout, hasBets)
         if prevNum < 10 then topStr = " " .. topStr end
         writeAt(wx + 9, wy + 7, topStr, C.text, getNumberColor(prevNum))
 
-        -- Center Focused Line (FIXED: Fixed spacing syntax bug here)
+        -- Center Focused Line 
         local midStr = tostring(centerNum)
         if centerNum < 10 then midStr = " " .. midStr end
         
         local arrowCol = C.chipGold
-        local textCol = C.text
-        if phase == "results" and hasBets then
-            arrowCol = (payout > 0) and C.win or C.loss
-            if getNumberColor(centerNum) == colours.lime then
-                textCol = colours.black
-            else
-                textCol = C.text
-            end
+        if phase == "results" then
+            arrowCol = C.text
         end
-        writeAt(wx + 6, wy + 9, "> " .. midStr .. " <", arrowCol, getNumberColor(centerNum))
+        writeAt(wx + 7, wy + 9, "> " .. midStr .. " <", arrowCol, getNumberColor(centerNum))
 
         -- Bottom Line
         local botStr = tostring(nextNum)
         if nextNum < 10 then botStr = " " .. botStr end
         writeAt(wx + 9, wy + 11, botStr, C.text, getNumberColor(nextNum))
-    else
-        drawCellButton(wx + 8, wy + 8, 5, 3, "IDLE", "", C.btnBg, colours.black, colours.black)
     end
     
     -- Status footer context
@@ -276,18 +263,9 @@ local function drawRealWheel(activeNumber, phase, tick, payout, hasBets)
         statusStr = "SPINNING..."
         statusColor = C.chipGold
     elseif phase == "results" then 
-        if not hasBets then
-            statusStr = "NO BETS"
-            statusColor = colours.lightGrey
-        elseif payout > 0 then
-            statusStr = "YOU WON!"
-            statusColor = C.win
-        else
-            statusStr = "YOU LOST"
-            statusColor = C.loss
-        end
+        statusStr = "CLICK ON ANY BUTTON TO RETRY"
     end
-    centreInZone(wx, wx + wheelW - 1, wy + wheelH, statusStr, statusColor, C.felt)
+    centreInZone(wx, wx + wheelW - 1, wy + wheelH + 1 , statusStr, statusColor, C.felt)
 end
 
 local function drawBottomPanel(canSpin, hasBets, state)
@@ -302,10 +280,10 @@ local function drawBottomPanel(canSpin, hasBets, state)
         drawCellButton(4, panelY, btnW, btnH, " CLEAR BETS ", "", C.btnBg, colours.grey, colours.grey)
     end
 
-    local tx = 23
-    writeAt(tx, panelY,     "• Tap layout to place chips", C.text, C.felt)
-    writeAt(tx, panelY + 1, "• Payout calculation is automatic", C.text, C.felt)
-    writeAt(tx, panelY + 2, "• High risk pays up to 35:1", C.chipGold, C.felt)
+    local tx = 22
+    writeAt(tx, panelY,     "- Tap layout to place chips", C.text, C.felt)
+    writeAt(tx, panelY + 1, "- Payout calculation is automatic", C.text, C.felt)
+    writeAt(tx, panelY + 2, "- High risk pays up to 35:1", C.chipGold, C.felt)
 
     -- Net Value Cash flow Panel
     if phase == "results" then
@@ -313,27 +291,35 @@ local function drawBottomPanel(canSpin, hasBets, state)
         local rw = 22
         fill(rx, panelY, rw, btnH, C.header)
         
+        writeAt(rx + 1, panelY + 1, "NUM:", C.text, C.header)
+        
         local c = getNumberColor(state.winningNumber)
         local numFg = (c == colours.lime) and colours.black or C.text
-        writeAt(rx + 1, panelY + 1, "NUM:", C.text, C.header)
-        drawCellButton(rx + 5, panelY + 1, 4, 1, tostring(state.winningNumber), "", c, numFg, numFg)
+        local formattedNum = tostring(state.winningNumber)
+        if #formattedNum == 1 then formattedNum = " " .. formattedNum .. " " else formattedNum = " " .. formattedNum end
+        
+        writeAt(rx + 5, panelY + 1, formattedNum, numFg, c)
 
         local totalBetAmount = 0
-        local function getChipValue(v)
-            if v == 1 then return 1 elseif v == 2 then return 2 elseif v == 4 then return 4 elseif v == "max" then return 10 end
-            return 0
-        end
         if state.bets then
-            for _, val in pairs(state.bets) do totalBetAmount = totalBetAmount + getChipValue(val) end
+            for _, val in pairs(state.bets) do totalBetAmount = totalBetAmount + (val or 0) end
         end
 
         if not hasBets then
             writeAt(rx + 10, panelY + 1, "  NO BETS", colours.lightGrey, C.header)
-        elseif state.payout and state.payout > 0 then
-            local netProfit = state.payout - totalBetAmount
-            writeAt(rx + 10, panelY + 1, "WON +" .. netProfit .. " \x13", C.win, C.header)
         else
-            writeAt(rx + 10, panelY + 1, "LOST -" .. totalBetAmount .. " \x15", C.loss, C.header)
+            local netProfit = (state.payout or 0) - totalBetAmount
+
+            if netProfit > 0 then
+                -- Pure Win
+                writeAt(rx + 10, panelY + 1, "WON +" .. netProfit .. " \x13", C.win, C.header)
+            elseif netProfit < 0 then
+                -- Pure Loss (math.abs makes sure it prints positive like "LOST 5" instead of "LOST -5")
+                writeAt(rx + 10, panelY + 1, "LOST -" .. math.abs(netProfit) .. " \x15", C.loss, C.header)
+            else
+                -- Perfect Break Even (Push)
+                writeAt(rx + 10, panelY + 1, "PUSH +0", colours.lightGrey, C.header)
+            end
         end
     end
 
