@@ -1,85 +1,75 @@
 -- bj_machine.lua
+-- Main blackjack machine logic. Runs the game loop, talks to the monitor,
+-- and coordinates with the manager via net_client and barrel_handler.
 
+local BJ     = dofile("blackjack.lua")
+local UI     = dofile("bj_ui.lua")
+local Barrel = dofile("../games/libraries/barrel_handler.lua")
+local Net    = dofile("../games/libraries/net_client.lua")
 
-local BJ = require("blackjack")
-local UI = require("bj_ui")
-
---  Config 
 local CFG = {
     managerId        = nil,
     machineLabel     = "Blackjack #1",
     betAmount        = 2,
     numDecks         = 6,
-    playerBarrelName = "minecraft:barrel_5",  -- player deposit
-    sharedBarrelName = "minecraft:barrel_4",  -- casino reserve
-    detectorName     = nil,
+    playerBarrelName = "minecraft:barrel_2",
+    sharedBarrelName = "minecraft:barrel_5",
     monitorName      = nil,
 }
 
-local function loadMachineConfig()
-    local CONFIG_FILE = "machine_config.txt"
-    if not fs.exists(CONFIG_FILE) then return end
-    local f = io.open(CONFIG_FILE, "r")
+local function loadConfig()
+    if not fs.exists("machine_config.txt") then return end
+    local f = io.open("machine_config.txt", "r")
     if not f then return end
     for line in f:lines() do
         local k, v = line:match("^(.-)=(.+)$")
         if k then
             if k == "managerId"    then CFG.managerId        = tonumber(v) end
-            if k == "detectorSide" then CFG.detectorName     = v end
             if k == "monitorSide"  then CFG.monitorName      = v end
             if k == "playerBarrel" then CFG.playerBarrelName = v end
             if k == "sharedBarrel" then CFG.sharedBarrelName = v end
+            if k == "label"        then CFG.machineLabel     = v end
         end
     end
     f:close()
 end
 
---  Shared state 
+-- If no label is saved yet, ask on the terminal so the manager can identify this machine.
+local function promptLabel()
+    if fs.exists("machine_config.txt") then return end
+    term.setTextColor(colours.cyan)
+    io.write("Machine name (e.g. Blackjack): ")
+    term.setTextColor(colours.white)
+    local input = io.read()
+    if input and input ~= "" then
+        CFG.machineLabel = input
+        local f = io.open("machine_config.txt", "w")
+        if f then
+            f:write("label=" .. input .. "\n")
+            f:close()
+        end
+    end
+end
+
 local shared = {
-    queueChips    = 0,
-    gameActive    = false,
-    shutdown      = false,
-    currentPlayer = nil,
+    queueChips = 0,
+    gameActive = false,
+    shutdown   = false,
 }
 
---  Peripherals 
-local detector     = nil
-local playerBarrel = nil
-local sharedBarrel = nil
-
-
 local function initPeripherals()
-    -- Monitor
     local mon
     if CFG.monitorName then
         mon = peripheral.wrap(CFG.monitorName)
-        assert(mon, "Monitor '" .. CFG.monitorName .. "' not found! Re-run bootstrap.")
+        assert(mon, "Monitor '" .. CFG.monitorName .. "' not found.")
     else
         mon = peripheral.find("monitor")
-        assert(mon, "No monitor found!")
+        assert(mon, "No monitor found.")
     end
     UI.init(mon)
 
-    -- wired palyer barreel
-    playerBarrel = peripheral.wrap(CFG.playerBarrelName)
-    assert(playerBarrel, "Player barrel '" .. CFG.playerBarrelName .. "' not found on wired network!")
+    Barrel.init(CFG.playerBarrelName, CFG.sharedBarrelName)
 
-    -- reservc barrel wired
-    sharedBarrel = peripheral.wrap(CFG.sharedBarrelName)
-    assert(sharedBarrel, "Shared chip barrel '" .. CFG.sharedBarrelName .. "' not found on wired network!")
-
-    -- Player detector, its optional but always use it, for leaderboards
-    if CFG.detectorName then
-        detector = peripheral.wrap(CFG.detectorName)
-        if not detector then
-            print("Warning: detector '" .. CFG.detectorName .. "' not found.")
-        end
-    else
-        detector = peripheral.find("playerDetector")
-                or peripheral.find("player_detector")
-    end
-
-    -- Wireless modem
     local modem = peripheral.find("modem", function(_, m)
         return m.isWireless and m.isWireless()
     end)
@@ -90,37 +80,23 @@ local function initPeripherals()
     return mon
 end
 
--- Barrel helpers 
-local function countChips(inv)
-    local total = 0
-    for _, stack in pairs(inv.list()) do
-        if stack.name == "createdeco:brass_coin" then
-            total = total + stack.count
-        end
+local function coinListener()
+    while not shared.shutdown do
+        shared.queueChips = Barrel.countPlayerChips()
+        os.sleep(0.25)
     end
-    return total
 end
 
-local function moveCoins(dst, dstName, srcName, amount)
-    local src = peripheral.wrap(srcName)
-    if not src then return 0 end
-    local moved = 0
-    for slot, stack in pairs(src.list()) do
-        if moved >= amount then break end
-        if stack.name == "createdeco:brass_coin" then
-            local toMove = math.min(amount - moved, stack.count)
-            moved = moved + dst.pullItems(srcName, slot, toMove)
+local function rednetListener()
+    Net.listenForConfig(
+        function(cfg)
+            if cfg.betAmount    then CFG.betAmount    = cfg.betAmount    end
+            if cfg.machineLabel then CFG.machineLabel = cfg.machineLabel end
+        end,
+        function()
+            shared.shutdown = true
         end
-    end
-    return moved
-end
-
-local function takeBet(amount)
-    return moveCoins(sharedBarrel, CFG.sharedBarrelName, CFG.playerBarrelName, amount)
-end
-
-local function returnToPlayer(amount)
-    return moveCoins(playerBarrel, CFG.playerBarrelName, CFG.sharedBarrelName, amount)
+    )
 end
 
 local function payoutAmount(result, bet)
@@ -130,98 +106,6 @@ local function payoutAmount(result, bet)
     return 0
 end
 
--- Rednet helpers 
-local function reportHand(result, bet, playerName)
-    if not CFG.managerId then return end
-    rednet.send(CFG.managerId, {
-        type   = "hand_result",
-        game   = "blackjack",
-        player = playerName or "Unknown",
-        result = result,
-        bet    = bet,
-    }, "CASINO_NET")
-end
-
-local function registerWithManager()
-    if not CFG.managerId then return end
-    rednet.send(CFG.managerId, {
-        type       = "register",
-        game       = "blackjack",
-        label      = CFG.machineLabel,
-        winPercent = CFG.winPercent or 30,
-    }, "CASINO_NET")
-    local sid, msg = rednet.receive("CASINO_NET", 10)
-    if sid == CFG.managerId and type(msg) == "table" and msg.type == "config" then
-        if msg.betAmount    then CFG.betAmount    = msg.betAmount    end
-        if msg.machineLabel then CFG.machineLabel = msg.machineLabel end
-    end
-end
-
--- Thread 1: coin listener 
-local function coinListener()
-    while not shared.shutdown do
-        shared.queueChips = countChips(playerBarrel)
-        os.sleep(0.25)
-    end
-end
-
--- Thread 3: Rednet listener 
-local function rednetListener()
-    while not shared.shutdown do
-        if CFG.managerId then
-            local sid, msg = rednet.receive("CASINO_NET", 2)
-            if sid == CFG.managerId and type(msg) == "table" then
-                if msg.type == "config" then
-                    if msg.betAmount    then CFG.betAmount    = msg.betAmount    end
-                    if msg.machineLabel then CFG.machineLabel = msg.machineLabel end
-                end
-                if msg.type == "shutdown" then
-                    shared.shutdown = true
-                end
-            end
-        else
-            os.sleep(2)
-        end
-    end
-end
-
--- Thread 4: Player detector 
-local PLAYER_DETECT_RANGE = 2
-
-local function remoteLog(level, msg)
-    print("[" .. level .. "] " .. tostring(msg))
-    if CFG.managerId then
-        rednet.send(CFG.managerId, {
-            type = "log",
-            line = "[BJ#" .. os.getComputerID() .. "] [" .. level .. "] " .. tostring(msg),
-        }, "CASINO_LOG")
-    end
-end
-
-local function detectNearbyPlayer()
-    if not detector then return nil end
-    local ok, players = pcall(detector.getPlayersInRange, PLAYER_DETECT_RANGE)
-    if not ok or type(players) ~= "table" then return nil end
-    return players[1] or nil
-end
-
-local function playerDetectorThread()
-    if not detector then
-        while not shared.shutdown do os.sleep(10) end
-        return
-    end
-    while not shared.shutdown do
-        if not shared.gameActive then
-            local name = detectNearbyPlayer()
-            if name ~= shared.currentPlayer then
-                shared.currentPlayer = name
-            end
-        end
-        os.sleep(2)
-    end
-end
-
---  Thread 2: Game loop 
 local function gameLoop()
     local deck = BJ.shuffle(BJ.newDeck(CFG.numDecks))
 
@@ -231,7 +115,6 @@ local function gameLoop()
         dealer     = {},
         bet        = CFG.betAmount,
         queueChips = 0,
-        playerName = nil,
         result     = nil,
         payout     = 0,
     }
@@ -239,7 +122,6 @@ local function gameLoop()
     local function redraw()
         uiState.queueChips = shared.queueChips
         uiState.bet        = CFG.betAmount
-        uiState.playerName = shared.currentPlayer
         UI.draw(uiState)
     end
 
@@ -249,7 +131,6 @@ local function gameLoop()
         end
     end
 
-    --  BETTING phase 
     local function bettingPhase()
         uiState.phase  = "betting"
         uiState.player = {}
@@ -263,10 +144,8 @@ local function gameLoop()
             if ev[1] == "monitor_touch" then
                 local action = UI.hitTest(ev[3], ev[4])
                 if action == "deal" and shared.queueChips >= CFG.betAmount then
-                    local moved = takeBet(CFG.betAmount)
+                    local moved = Barrel.takeBet(CFG.betAmount)
                     if moved >= CFG.betAmount then
-                        local nearby = detectNearbyPlayer()
-                        if nearby then shared.currentPlayer = nearby end
                         return true
                     end
                 end
@@ -275,7 +154,6 @@ local function gameLoop()
         return false
     end
 
-    --  PLAYING phase 
     local totalBet = CFG.betAmount
 
     local function playingPhase(gameState)
@@ -300,7 +178,7 @@ local function gameLoop()
 
             elseif action == "double" then
                 if shared.queueChips >= CFG.betAmount then
-                    local moved = takeBet(CFG.betAmount)
+                    local moved = Barrel.takeBet(CFG.betAmount)
                     if moved >= CFG.betAmount then
                         totalBet = totalBet + CFG.betAmount
                         BJ.playerDouble(gameState)
@@ -310,7 +188,7 @@ local function gameLoop()
 
             elseif action == "split" then
                 if shared.queueChips >= CFG.betAmount then
-                    local moved = takeBet(CFG.betAmount)
+                    local moved = Barrel.takeBet(CFG.betAmount)
                     if moved >= CFG.betAmount then
                         totalBet = totalBet + CFG.betAmount
                         local h1 = {gameState.player[1], BJ.deal(gameState.deck)}
@@ -324,10 +202,8 @@ local function gameLoop()
         return gameState
     end
 
-    --  DONE phase 
     local function donePhase(gameState)
-        local playerName = shared.currentPlayer or "Unknown"
-        local chips      = payoutAmount(gameState.result, totalBet)
+        local chips = payoutAmount(gameState.result, totalBet)
 
         uiState.phase  = "done"
         uiState.player = gameState.player
@@ -337,12 +213,11 @@ local function gameLoop()
         redraw()
 
         if chips > 0 then
-            returnToPlayer(chips)
+            Barrel.returnToPlayer(chips)
         end
 
-        reportHand(gameState.result, totalBet, playerName)
+        Net.reportHand(gameState.result, totalBet, "Unknown")
 
-        -- Wait for tap or 10 seconds before next hand
         local deadline = os.clock() + 10
         while os.clock() < deadline do
             redraw()
@@ -351,7 +226,6 @@ local function gameLoop()
         end
     end
 
-    -- Main loop 
     while not shared.shutdown do
         checkShoe()
         shared.gameActive = false
@@ -360,7 +234,7 @@ local function gameLoop()
         if not ok then break end
 
         shared.gameActive = true
-        totalBet = CFG.betAmount   
+        totalBet = CFG.betAmount
         local gameState = BJ.newGame(deck, CFG.betAmount)
         BJ.startDeal(gameState)
 
@@ -378,11 +252,12 @@ local function gameLoop()
     end
 end
 
--- Entry point 
 local function main()
     math.randomseed(os.time())
 
-    loadMachineConfig()
+    promptLabel()
+    loadConfig()
+
     if not CFG.managerId then
         local f = io.open("manager_id.txt", "r")
         if f then
@@ -390,6 +265,8 @@ local function main()
             f:close()
         end
     end
+
+    Net.init(CFG.managerId, "blackjack", CFG.machineLabel)
 
     local mon = initPeripherals()
 
@@ -399,7 +276,11 @@ local function main()
     mon.setTextColor(colours.yellow)
     mon.write("  Connecting to manager...")
 
-    registerWithManager()
+    local cfg = Net.register()
+    if cfg then
+        if cfg.betAmount    then CFG.betAmount    = cfg.betAmount    end
+        if cfg.machineLabel then CFG.machineLabel = cfg.machineLabel end
+    end
 
     mon.setCursorPos(1, 2)
     mon.setTextColor(colours.lime)
@@ -407,10 +288,9 @@ local function main()
     os.sleep(1)
 
     parallel.waitForAny(
-        function() coinListener()         end,
-        function() gameLoop()             end,
-        function() rednetListener()       end,
-        function() playerDetectorThread() end
+        function() coinListener()   end,
+        function() gameLoop()       end,
+        function() rednetListener() end
     )
 end
 
