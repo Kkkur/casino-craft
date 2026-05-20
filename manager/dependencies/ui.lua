@@ -1,6 +1,6 @@
 -- ui.lua
 
-local Currency = require("currency")
+local Currency    = dofile("dependencies/currency.lua")
 local UI       = {}
 
 -- Color palette
