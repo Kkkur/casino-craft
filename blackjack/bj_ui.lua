@@ -19,7 +19,6 @@
 --   payout     : chip count paid out
 
 local BJ     = dofile("blackjack/blackjack.lua")
-local UI     = dofile("blackjack/bj_ui.lua")
 
 local BJ_UI = {}
 
