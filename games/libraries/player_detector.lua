@@ -1,29 +1,36 @@
--- player_detector.lua
-
 local PlayerDetector = {}
 
 local IDLE_TIMEOUT = 120
 
 -- Internal state 
-
 local detector       = nil   -- the peripheral
 local currentPlayer  = nil   -- username string or nil
 local lastActivity   = 0     -- os.clock() of last click
 
---  Init 
-
-function PlayerDetector.init()
-    detector = peripheral.find("playerDetector") or peripheral.find("player_detector")
-    if not detector then
-        print("[PlayerDetector] WARNING: No player detector found. Names will be 'Unknown'.")
+-- Init using the passed name from config
+function PlayerDetector.init(detectorName)
+    if not detectorName or detectorName == "none" then
+        print("[PlayerDetector] Disabled via config.")
         return false
     end
+
+    if peripheral.isPresent(detectorName) then
+        detector = peripheral.wrap(detectorName)
+    else
+        -- Fallback search if the specified network name isn't live right now
+        detector = peripheral.find("playerDetector")
+    end
+
+    if not detector then
+        print("[PlayerDetector] WARNING: Specified peripheral '" .. tostring(detectorName) .. "' not found. Tracking disabled.")
+        return false
+    end
+
     print("[PlayerDetector] Ready. Peripheral: " .. peripheral.getName(detector))
     return true
 end
 
 -- Current player access 
-
 function PlayerDetector.getCurrentPlayer()
     return currentPlayer
 end
@@ -36,7 +43,7 @@ function PlayerDetector.isAvailable()
     return detector ~= nil
 end
 
--- Optional, check if player is still nearby 
+-- Check if player is still nearby 
 function PlayerDetector.isNearby(username, range)
     if not detector or not username then return false end
     range = range or 5
@@ -52,10 +59,22 @@ function PlayerDetector.getPlayersNearby(range)
     return (ok and result) or {}
 end
 
+-- Gets the single closest player name within range (used by bj_machine's asynchronous listener)
+function PlayerDetector.getClosestPlayer(range)
+    if not detector then return nil end
+    range = range or 5
+    
+    local ok, players = pcall(detector.getPlayersInRange, range)
+    if not ok or not players or #players == 0 then 
+        return nil 
+    end
+    
+    -- advancedperipherals returns a list of names. The first index is typically the closest.
+    return players[1]
+end
+
 -- Listener thread 
-
 function PlayerDetector.listenerThread(shared, onPlayerChange)
-
     while not (shared and shared.shutdown) do
         local event, username, device = os.pullEvent()
 

@@ -1,9 +1,8 @@
--- bj_ui.lua
 -- Blackjack-specific rendering. Handles cards, zones, buttons, and results.
 -- All primitives, colours, and the header come from ui_lib.lua.
 --
 -- How to use:
---   local BJ_UI = dofile("bj_ui.lua")
+--   local BJ_UI = dofile("games/blackjack/bj_ui.lua")
 --   BJ_UI.init(peripheral.find("monitor"))
 --   BJ_UI.draw(state)
 --   local action = BJ_UI.hitTest(x, y)
@@ -18,7 +17,9 @@
 --   result     : "win" | "loss" | "push" | "blackjack" or nil
 --   payout     : chip count paid out
 
-local BJ     = dofile("games/blackjack/blackjack.lua")
+local BJ = dofile("games/blackjack/blackjack.lua")
+-- FIX: Load the UI library so the script can access UI properties and functions
+local UI = dofile("games/libraries/ui_lib.lua")
 
 local BJ_UI = {}
 

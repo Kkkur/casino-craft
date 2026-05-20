@@ -1,74 +1,69 @@
--- bj_machine.lua
 -- Main blackjack machine logic. Runs the game loop, talks to the monitor,
--- and coordinates with the manager via net_client and barrel_handler.
+-- and coordinates with the manager via net_client, barrel_handler, and player_detector.
 
 local BJ     = dofile("games/blackjack/blackjack.lua")
 local UI     = dofile("games/blackjack/bj_ui.lua")
 local Barrel = dofile("games/libraries/barrel_handler.lua")
 local Net    = dofile("games/libraries/net_client.lua")
+local Det    = dofile("games/libraries/player_detector.lua")
 
+-- Dynamic configuration populated entirely by machine_config.txt or the manager server
 local CFG = {
-    managerId        = nil,
-    machineLabel     = "Blackjack #1",
-    betAmount        = 2,
-    numDecks         = 6,
-    playerBarrelName = "minecraft:barrel_2",
-    sharedBarrelName = "minecraft:barrel_5",
-    monitorName      = nil,
+    managerId          = nil,
+    machineLabel       = "Blackjack Table", -- Fallback text used until network registration syncs
+    betAmount          = 2,                 -- Fallback minimum bet until network registration syncs
+    numDecks           = 6,
+    playerBarrelName   = nil,
+    sharedBarrelName   = nil,
+    playerDetectorName = nil,
+    monitorName        = nil,
 }
 
 local function loadConfig()
-    if not fs.exists("machine_config.txt") then return end
+    if not fs.exists("machine_config.txt") then 
+        error("machine_config.txt missing! Please run bootstrap.lua first.")
+    end
+    
     local f = io.open("machine_config.txt", "r")
     if not f then return end
+    
     for line in f:lines() do
         local k, v = line:match("^(.-)=(.+)$")
         if k then
-            if k == "managerId"    then CFG.managerId        = tonumber(v) end
-            if k == "monitorSide"  then CFG.monitorName      = v end
-            if k == "playerBarrel" then CFG.playerBarrelName = v end
-            if k == "sharedBarrel" then CFG.sharedBarrelName = v end
-            if k == "label"        then CFG.machineLabel     = v end
+            if k == "managerId"      then CFG.managerId         = tonumber(v) end
+            if k == "monitorSide"    then CFG.monitorName       = v end
+            if k == "playerBarrel"   then CFG.playerBarrelName  = v end
+            if k == "sharedBarrel"   then CFG.sharedBarrelName  = v end
+            if k == "playerDetector" then CFG.playerDetectorName = v end
+            if k == "label"          then CFG.machineLabel      = v end
         end
     end
     f:close()
 end
 
--- If no label is saved yet, ask on the terminal so the manager can identify this machine.
-local function promptLabel()
-    if fs.exists("machine_config.txt") then return end
-    term.setTextColor(colours.cyan)
-    io.write("Machine name (e.g. Blackjack): ")
-    term.setTextColor(colours.white)
-    local input = io.read()
-    if input and input ~= "" then
-        CFG.machineLabel = input
-        local f = io.open("machine_config.txt", "w")
-        if f then
-            f:write("label=" .. input .. "\n")
-            f:close()
-        end
-    end
-end
-
 local shared = {
     queueChips = 0,
+    playerName = nil, 
     gameActive = false,
     shutdown   = false,
 }
 
 local function initPeripherals()
-    local mon
-    if CFG.monitorName then
-        mon = peripheral.wrap(CFG.monitorName)
-        assert(mon, "Monitor '" .. CFG.monitorName .. "' not found.")
-    else
-        mon = peripheral.find("monitor")
-        assert(mon, "No monitor found.")
-    end
+    -- Ensure required peripherals were supplied by the bootstrap file
+    assert(CFG.monitorName, "Critical Configuration Error: monitorSide is missing from machine_config.txt")
+    assert(CFG.playerBarrelName, "Critical Configuration Error: playerBarrel is missing from machine_config.txt")
+    assert(CFG.sharedBarrelName, "Critical Configuration Error: sharedBarrel is missing from machine_config.txt")
+
+    local mon = peripheral.wrap(CFG.monitorName)
+    assert(mon, "Peripheral Error: Monitor '" .. CFG.monitorName .. "' could not be found on the network.")
     UI.init(mon)
 
     Barrel.init(CFG.playerBarrelName, CFG.sharedBarrelName)
+
+    -- Player detector configuration is optional or can be explicitly skipped by setting it to "none"
+    if CFG.playerDetectorName and CFG.playerDetectorName ~= "none" then
+        Det.init(CFG.playerDetectorName)
+    end
 
     local modem = peripheral.find("modem", function(_, m)
         return m.isWireless and m.isWireless()
@@ -84,6 +79,17 @@ local function coinListener()
     while not shared.shutdown do
         shared.queueChips = Barrel.countPlayerChips()
         os.sleep(0.25)
+    end
+end
+
+local function playerListener()
+    -- If the user skipped the detector setup, terminate this parallel loop immediately
+    if not CFG.playerDetectorName or CFG.playerDetectorName == "none" then return end
+    
+    while not shared.shutdown do
+        local currentUser = Det.getClosestPlayer(5)
+        shared.playerName = currentUser
+        os.sleep(0.5) 
     end
 end
 
@@ -115,6 +121,7 @@ local function gameLoop()
         dealer     = {},
         bet        = CFG.betAmount,
         queueChips = 0,
+        playerName = nil, 
         result     = nil,
         payout     = 0,
     }
@@ -122,6 +129,7 @@ local function gameLoop()
     local function redraw()
         uiState.queueChips = shared.queueChips
         uiState.bet        = CFG.betAmount
+        uiState.playerName = shared.playerName 
         UI.draw(uiState)
     end
 
@@ -138,7 +146,6 @@ local function gameLoop()
         uiState.result = nil
         uiState.payout = 0
 
-        -- Redraw on a timer so chip queue updates, not on every event
         local drawTimer = os.startTimer(0.5)
         redraw()
 
@@ -224,9 +231,9 @@ local function gameLoop()
             Barrel.returnToPlayer(chips)
         end
 
-        Net.reportHand(gameState.result, totalBet, "Unknown")
+        local loggingName = shared.playerName or "Unknown"
+        Net.reportHand(gameState.result, totalBet, loggingName)
 
-        -- Use a timer event instead of os.clock() to avoid busy-waiting
         local timer = os.startTimer(10)
         while true do
             local ev, p1 = os.pullEvent()
@@ -264,16 +271,7 @@ end
 local function main()
     math.randomseed(os.time())
 
-    promptLabel()
     loadConfig()
-
-    if not CFG.managerId then
-        local f = io.open("manager_id.txt", "r")
-        if f then
-            CFG.managerId = tonumber(f:read("*l"))
-            f:close()
-        end
-    end
 
     Net.init(CFG.managerId, "blackjack", CFG.machineLabel)
 
@@ -298,6 +296,7 @@ local function main()
 
     parallel.waitForAny(
         function() coinListener()   end,
+        function() playerListener() end, 
         function() gameLoop()       end,
         function() rednetListener() end
     )
