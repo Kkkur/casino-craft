@@ -16,7 +16,7 @@ local MACHINE_TYPES = {
         label   = "Bank Server",
         files   = {
             "bank/server.lua",
-            "lib/bank.lua",
+            "lib/BankLib.lua",
         },
         startup = "bank/server.lua",
         peripherals = {
@@ -55,7 +55,7 @@ local MACHINE_TYPES = {
         label   = "ATM Terminal",
         files   = {
             "bank/atm.lua",
-            "lib/bank.lua",
+            "lib/BankLib.lua",
         },
         startup = "bank/atm.lua",
         peripherals = {
@@ -117,7 +117,7 @@ local MACHINE_TYPES = {
         label   = "Baltop Display",
         files   = {
             "bank/server.lua",
-            "lib/bank.lua",
+            "lib/BankLib.lua",
         },
         startup = "bank/server.lua",
         peripherals = {
