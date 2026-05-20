@@ -250,6 +250,13 @@ end
 
 -- MAIN
 
+-- Parse arguments. Usage: bootstrap -noupdate (skips downloading files, just launches)
+local args = {...}
+local noUpdate = false
+for _, arg in ipairs(args) do
+    if arg == "-noupdate" then noUpdate = true end
+end
+
 term.setBackgroundColor(colours.black)
 term.clear()
 term.setCursorPos(1, 1)
@@ -283,8 +290,12 @@ else
     log("Warning: no wireless modem found.")
 end
 
--- Update all game files from GitHub
-updateFiles(cfg.gameType)
+-- Update all game files from GitHub (skip with -noupdate arg)
+if noUpdate then
+    log("Skipping update (-noupdate).")
+else
+    updateFiles(cfg.gameType)
+end
 
 -- Write peripheral and barrel config into machine_config.txt so the game can read it
 -- (already saved above but we re-save here in case updateFiles touched anything)
