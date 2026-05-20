@@ -4,8 +4,8 @@
 
 local BJ     = dofile("blackjack/blackjack.lua")
 local UI     = dofile("blackjack/bj_ui.lua")
-local Barrel = dofile("games/libraries/barrel_handler.lua")
-local Net    = dofile("games/libraries/net_client.lua")
+local Barrel = dofile("../games/libraries/barrel_handler.lua")
+local Net    = dofile("../games/libraries/net_client.lua")
 
 local CFG = {
     managerId        = nil,
@@ -138,17 +138,24 @@ local function gameLoop()
         uiState.result = nil
         uiState.payout = 0
 
+        -- Redraw on a timer so chip queue updates, not on every event
+        local drawTimer = os.startTimer(0.5)
+        redraw()
+
         while not shared.shutdown do
-            redraw()
-            local ev = {os.pullEvent()}
-            if ev[1] == "monitor_touch" then
-                local action = UI.hitTest(ev[3], ev[4])
+            local ev, p1, p2, p3 = os.pullEvent()
+            if ev == "timer" and p1 == drawTimer then
+                redraw()
+                drawTimer = os.startTimer(0.5)
+            elseif ev == "monitor_touch" then
+                local action = UI.hitTest(p2, p3)
                 if action == "deal" and shared.queueChips >= CFG.betAmount then
                     local moved = Barrel.takeBet(CFG.betAmount)
                     if moved >= CFG.betAmount then
                         return true
                     end
                 end
+                redraw()
             end
         end
         return false
@@ -160,16 +167,17 @@ local function gameLoop()
         uiState.phase  = "playing"
         uiState.player = gameState.player
         uiState.dealer = gameState.dealer
+        redraw()
 
         while not shared.shutdown do
-            redraw()
-            local ev = {os.pullEvent()}
-            if ev[1] ~= "monitor_touch" then goto continue end
-            local action = UI.hitTest(ev[3], ev[4])
+            local ev, p1, p2, p3 = os.pullEvent()
+            if ev ~= "monitor_touch" then goto continue end
+            local action = UI.hitTest(p2, p3)
 
             if action == "hit" then
                 BJ.playerHit(gameState)
                 uiState.player = gameState.player
+                redraw()
                 if gameState.phase == "done" then return gameState end
 
             elseif action == "stand" then
@@ -218,11 +226,12 @@ local function gameLoop()
 
         Net.reportHand(gameState.result, totalBet, "Unknown")
 
-        local deadline = os.clock() + 10
-        while os.clock() < deadline do
-            redraw()
-            local ev = {os.pullEvent()}
-            if ev[1] == "monitor_touch" then break end
+        -- Use a timer event instead of os.clock() to avoid busy-waiting
+        local timer = os.startTimer(10)
+        while true do
+            local ev, p1 = os.pullEvent()
+            if ev == "monitor_touch" then break end
+            if ev == "timer" and p1 == timer then break end
         end
     end
 

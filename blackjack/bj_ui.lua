@@ -18,8 +18,8 @@
 --   result     : "win" | "loss" | "push" | "blackjack" or nil
 --   payout     : chip count paid out
 
-local UI = dofile("ui_lib.lua")
-local BJ = dofile("blackjack.lua")
+local BJ     = dofile("blackjack/blackjack.lua")
+local UI     = dofile("blackjack/bj_ui.lua")
 
 local BJ_UI = {}
 
