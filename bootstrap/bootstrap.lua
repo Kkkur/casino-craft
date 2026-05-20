@@ -207,12 +207,15 @@ end
 
 -- Downloads a file from GitHub, always replacing whatever is there.
 local function download(remotePath, localPath)
-    local url = BASE_URL .. remotePath
+    -- Add the cache-buster here: ?t= (timestamp)
+    local url = BASE_URL .. remotePath .. "?t=" .. os.epoch("utc")
+    
     if fs.exists(localPath) then fs.delete(localPath) end
     local dir = localPath:match("^(.*)/[^/]+$")
     if dir and dir ~= "" and not fs.exists(dir) then
         fs.makeDir(dir)
     end
+    
     local ok = shell.run("wget", url, localPath)
     return ok
 end
