@@ -72,6 +72,16 @@ function UI.fill(x, y, w, h, col)
     end
 end
 
+function UI.drawCheckerboard(x, y, w, h, bgCol, patternCol)
+    UI.bg(bgCol)
+    UI.fg(patternCol or colours.grey)
+    local row = string.rep("\127", w)
+    for dy = 0, h - 1 do
+        UI.cur(x, y + dy)
+        mon.write(row)
+    end
+end
+
 function UI.writeAt(x, y, text, fgCol, bgCol)
     if bgCol then UI.bg(bgCol) end
     if fgCol then UI.fg(fgCol) end

@@ -132,7 +132,7 @@ function BJ_UI.draw(state)
 
     local phase = state.phase or "betting"
     UI.drawHeader("BLACKJACK", state.queueChips, state.playerName)
-    UI.fill(1, 3, UI.W, UI.H - 2, UI.C.felt)
+    UI.drawCheckerboard(1, 3, UI.W, UI.H - 2, UI.C.felt, UI.C.feltDark)
 
     if phase == "betting" then
         drawBettingPrompt(state.bet, state.queueChips)
