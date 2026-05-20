@@ -12,8 +12,8 @@ UI.W, UI.H = 0, 0
 
 UI.C = {
     bg          = colours.black,
-    felt        = colours.green,
-    feltDark    = colours.lime,
+    felt        = colours.brown,     -- remapped via setPaletteColor in UI.init
+    feltDark    = colours.pink,      -- remapped via setPaletteColor in UI.init
     text        = colours.white,
     dimText     = colours.grey,
     cardFace    = colours.white,
@@ -45,6 +45,13 @@ function UI.init(monitor)
     mon = monitor
     mon.setTextScale(0.5)
     UI.W, UI.H = mon.getSize()
+
+    -- Redefine unused palette slots for custom felt colors.
+    -- colours.brown -> dark casino felt green  (#1a4a1a)
+    -- colours.pink  -> slightly lighter felt   (#2a6b2a)
+    mon.setPaletteColor(colours.brown, 0x1a / 255, 0x4a / 255, 0x1a / 255)
+    mon.setPaletteColor(colours.pink,  0x2a / 255, 0x6b / 255, 0x2a / 255)
+
     mon.clear()
 end
 
@@ -66,6 +73,20 @@ end
 function UI.fill(x, y, w, h, col)
     UI.bg(col)
     local row = string.rep(" ", w)
+    for dy = 0, h - 1 do
+        UI.cur(x, y + dy)
+        mon.write(row)
+    end
+end
+
+-- Fills a rectangle with the \127 DEL glyph, which renders as a
+-- checkerboard/dotted block in ComputerCraft's font.
+-- bgCol      : background color of each cell (required)
+-- patternCol : text color of the glyph (optional, defaults to colours.grey)
+function UI.drawCheckerboard(x, y, w, h, bgCol, patternCol)
+    UI.bg(bgCol)
+    UI.fg(patternCol or colours.grey)
+    local row = string.rep("\127", w)
     for dy = 0, h - 1 do
         UI.cur(x, y + dy)
         mon.write(row)
@@ -139,6 +160,9 @@ function UI.drawHeader(title, queueChips, playerName)
         local pStr = UI.clamp("  " .. playerName .. "  ", 20)
         UI.centreAt(1, pStr, UI.C.dimText, UI.C.header)
     end
+
+    -- row 2: pure black gap between header and felt
+    UI.fill(1, 2, UI.W, 1, UI.C.bg)
 end
 
 return UI
