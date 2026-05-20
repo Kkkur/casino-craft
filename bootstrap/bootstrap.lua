@@ -17,11 +17,21 @@ local GAME_FILES = {
         "games/blackjack/bj_ui.lua",
         "games/blackjack/bj_machine.lua",
     },
+    roulette = {
+        "games/libraries/barrel_handler.lua",
+        "games/libraries/net_client.lua",
+        "games/libraries/ui_lib.lua",
+        "games/libraries/player_detector.lua",
+        "games/roulette/roulette.lua",
+        "games/roulette/roulette_ui.lua",
+        "games/roulette/roulette_machine.lua",
+    },
 }
 
 -- The file to run after updating, per game type.
 local GAME_ENTRY = {
     blackjack = "games/blackjack/bj_machine.lua",
+    roulette  = "games/roulette/roulette_machine.lua",
 }
 
 local function log(msg)
