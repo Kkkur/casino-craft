@@ -207,17 +207,34 @@ end
 
 -- Downloads a file from GitHub, always replacing whatever is there.
 local function download(remotePath, localPath)
-    -- Add the cache-buster here: ?t= (timestamp)
     local url = BASE_URL .. remotePath .. "?t=" .. os.epoch("utc")
     
-    if fs.exists(localPath) then fs.delete(localPath) end
+    -- Fetch the data directly via HTTP
+    local response = http.get(url, nil, true) -- true = binary mode
+    if not response then
+        log("FAILED: Could not connect to " .. url)
+        return false
+    end
+    
+    local content = response.readAll()
+    response.close()
+    
+    -- Ensure directory exists
     local dir = localPath:match("^(.*)/[^/]+$")
     if dir and dir ~= "" and not fs.exists(dir) then
         fs.makeDir(dir)
     end
     
-    local ok = shell.run("wget", url, localPath)
-    return ok
+    -- Write the file
+    local f = io.open(localPath, "w")
+    if not f then 
+        log("FAILED: Could not open " .. localPath .. " for writing")
+        return false 
+    end
+    f:write(content)
+    f:close()
+    
+    return true
 end
 
 -- Downloads all files for the given game type.
