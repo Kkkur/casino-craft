@@ -79,15 +79,15 @@ end
 
 local function drawDealerZone(dealerHand, hideHole)
     local val = hideHole and "" or (" " .. tostring(BJ.handValue(dealerHand)))
-    UI.writeAt(2, 3, "  DEALER " .. val, UI.C.dimText, UI.C.felt)
-    if #dealerHand > 0 then drawHand(dealerHand, 4, hideHole) end
+    UI.centreAt(4, "DEALER" .. val, UI.C.text, UI.C.felt)
+    if #dealerHand > 0 then drawHand(dealerHand, 5, hideHole) end
 end
 
 local function drawPlayerZone(playerHand, playerName)
     local val = BJ.handValue(playerHand)
-    local col = (val > 21) and UI.C.loss or UI.C.dimText
-    local label = playerName and ("  " .. playerName .. "  " .. val) or ("  YOU  " .. val)
-    UI.writeAt(2, UI.H - 7, label, col, UI.C.felt)
+    local col = (val > 21) and UI.C.loss or UI.C.text
+    local label = playerName and (playerName .. "  " .. val) or ("YOU  " .. val)
+    UI.centreAt(UI.H - 8, label, col, UI.C.felt)
     if #playerHand > 0 then drawHand(playerHand, UI.H - 6, false) end
 end
 
@@ -150,7 +150,7 @@ function BJ_UI.draw(state)
     if state.player and #state.player > 0 then drawPlayerZone(state.player, state.playerName) end
 
     if phase == "playing" then
-        local btnY, btnW, gap = math.floor(UI.H / 2), 10, 3
+        local btnY, btnW, gap = math.floor(UI.H / 2) + 1, 10, 3
         local btns = { {label="  HIT  ", action="hit", bg=UI.C.btnHit}, {label=" STAND ", action="stand", bg=UI.C.btnStand} }
         if BJ.canDouble(state.player) and state.queueChips >= state.bet then
             table.insert(btns, {label="DOUBLE ", action="double", bg=UI.C.btnDouble})
