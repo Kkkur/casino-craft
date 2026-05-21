@@ -131,7 +131,19 @@ local function validateRequest(senderId, msg)
     return true
 end
 
+local _reconcilePending = false
+
+local function scheduleReconcile()
+    -- Defer reconcile by 2s so the ATM has time to physically move coins
+    -- after receiving the ledger confirmation. A flag prevents stacking.
+    if not _reconcilePending then
+        _reconcilePending = true
+        os.startTimer(2)   -- caught in run() loop
+    end
+end
+
 local function reconcile()
+    _reconcilePending = false
     local sum          = profiles.sumAll()
     local ok, exp, act = vault.reconcile(sum, COIN_ITEM)
     if not ok then
@@ -142,12 +154,15 @@ local function reconcile()
     end
 end
 
+-- Actions that are silent (no NET log, no debug request log)
+local SILENT_ACTIONS = { ping = true, top = true }
+
 local function handle(senderId, msg)
     local action = msg.action
     local player = msg.player
     local amount = msg.amount
 
-    if _log then
+    if _log and not SILENT_ACTIONS[action] then
         _log.debug("Request from ID " .. tostring(senderId)
             .. " action=" .. tostring(action)
             .. " player=" .. tostring(player)
@@ -167,8 +182,8 @@ local function handle(senderId, msg)
         local after  = profiles.add(player, amount)
         if not after then return { ok = false, err = "error" } end
         ledger.record(player, "add", amount, before, after)
-        if _log then _log.info("add " .. tostring(amount) .. " → " .. player .. " balance=" .. after) end
-        reconcile()
+        if _log then _log.info("add " .. tostring(amount) .. " -> " .. player .. " balance=" .. after) end
+        scheduleReconcile()
         return { ok = true, balance = after }
 
     elseif action == "remove" and player and amount then
@@ -179,8 +194,8 @@ local function handle(senderId, msg)
             return { ok = false, err = err or "insufficient" }
         end
         ledger.record(player, "remove", amount, before, after)
-        if _log then _log.info("remove " .. tostring(amount) .. " → " .. player .. " balance=" .. after) end
-        reconcile()
+        if _log then _log.info("remove " .. tostring(amount) .. " -> " .. player .. " balance=" .. after) end
+        scheduleReconcile()
         return { ok = true, balance = after }
 
     elseif action == "set" and player and amount then
@@ -188,7 +203,7 @@ local function handle(senderId, msg)
         profiles.setBalance(player, amount)
         ledger.record(player, "set", amount, before, amount)
         if _log then _log.info("set " .. player .. " balance=" .. amount .. " (was " .. before .. ")") end
-        reconcile()
+        scheduleReconcile()
         return { ok = true, balance = amount }
 
     elseif action == "top" then
@@ -214,26 +229,39 @@ function rednetHandler.run()
     local PUBLIC_ACTIONS = { top = true }
 
     while true do
-        local senderId, msg = rednet.receive(PROTOCOL)
-        if type(msg) == "table" then
-            if _log then _log.net("RECV", senderId, PROTOCOL, msg.action or "?") end
+        local ev, p1, p2 = os.pullEvent()
 
-            local reply
-            if PUBLIC_ACTIONS[msg.action] then
-                -- no auth required for public reads
-                reply = handle(senderId, msg)
-            else
-                local ok, reason = validateRequest(senderId, msg)
-                if ok then
+        if ev == "timer" then
+            -- deferred reconcile fired
+            if _reconcilePending then reconcile() end
+
+        elseif ev == "rednet_message" then
+            local senderId, msg = p1, p2
+            if type(msg) == "table" then
+                local silent = SILENT_ACTIONS[msg.action]
+
+                if _log and not silent then
+                    _log.net("RECV", senderId, PROTOCOL, msg.action or "?")
+                end
+
+                local reply
+                if PUBLIC_ACTIONS[msg.action] then
                     reply = handle(senderId, msg)
                 else
-                    if _log then _log.warn("Rejected ID " .. tostring(senderId) .. ": " .. tostring(reason)) end
-                    reply = { ok = false, err = reason }
+                    local ok, reason = validateRequest(senderId, msg)
+                    if ok then
+                        reply = handle(senderId, msg)
+                    else
+                        if _log then _log.warn("Rejected ID " .. tostring(senderId) .. ": " .. tostring(reason)) end
+                        reply = { ok = false, err = reason }
+                    end
+                end
+
+                rednet.send(senderId, reply, PROTOCOL)
+                if _log and not silent then
+                    _log.net("SEND", senderId, PROTOCOL, reply.ok and "ok" or "err:" .. tostring(reply.err))
                 end
             end
-
-            rednet.send(senderId, reply, PROTOCOL)
-            if _log then _log.net("SEND", senderId, PROTOCOL, reply.ok and "ok" or "err:" .. tostring(reply.err)) end
         end
     end
 end
