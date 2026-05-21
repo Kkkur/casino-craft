@@ -10,7 +10,7 @@ local _ledger   = nil
 local _log      = nil
 local _cfgFile  = "bank_config.json"
 
--- ── CC-native colour helpers ──────────────────────────────────────────────────
+--  CC-native colour helpers 
 -- CC terminals don't support ANSI codes; use term.setTextColor instead.
 
 local function cprint(col, msg)
@@ -24,7 +24,7 @@ local function warn(msg) cprint(colours.yellow,  "[WARN] " .. msg) end
 local function err(msg)  cprint(colours.red,     "[ERR] "  .. msg) end
 local function info(msg) cprint(colours.cyan,    "  "      .. msg) end
 
--- ── config helpers ────────────────────────────────────────────────────────────
+--  config helpers 
 
 local function saveCfg(cfg)
     local f = fs.open(_cfgFile, "w")
@@ -43,7 +43,7 @@ local function loadCfg()
     return data
 end
 
--- ── command handlers ──────────────────────────────────────────────────────────
+--  command handlers 
 
 local commands = {}
 
@@ -271,7 +271,7 @@ commands["id"] = {
     end,
 }
 
--- ── sticky prompt ─────────────────────────────────────────────────────────────
+--  sticky prompt 
 --
 -- The last terminal row is reserved for "server> <input>".
 -- We hook _G.print so that whenever the logger or any other coroutine prints,
@@ -312,7 +312,7 @@ end
 local function installHook()   _G.print = hookedPrint  end
 local function uninstallHook() _G.print = _origPrint   end
 
--- ── readline ──────────────────────────────────────────────────────────────────
+--  readline 
 
 local KEY_ENTER     = keys.enter
 local KEY_BACKSPACE = keys.backspace
@@ -390,7 +390,7 @@ local function readline()
     end
 end
 
--- ── dispatch ──────────────────────────────────────────────────────────────────
+--  dispatch 
 
 local function dispatch(line)
     line = line:match("^%s*(.-)%s*$")
@@ -423,7 +423,7 @@ local function dispatch(line)
     if not ok2 then err("Command error: " .. tostring(e)) end
 end
 
--- ── public API ────────────────────────────────────────────────────────────────
+--  public API 
 
 function cli.init(rednetHandler, vaultMod, profilesMod, ledgerMod, logger)
     _rednet   = rednetHandler
