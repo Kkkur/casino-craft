@@ -4,10 +4,10 @@ local rednetHandler = {}
 
 local profiles = dofile("/bank/server/profiles.lua")
 local ledger   = dofile("/bank/server/ledger.lua")
-local vault    = dofile("/bank/server/vault.lua")
+local vault    = nil   -- injected via init() — must use the already-initialised instance
 
 local PROTOCOL = "bank_protocol"
-local HOSTNAME = "bank_server_1"
+local HOSTNAME = "bank_server"
 
 -- security state
 local _token     = nil
@@ -23,9 +23,10 @@ local COIN_ITEM    = "createdeco:brass_coin"
 
 local function L() return _log end
 
-function rednetHandler.init(token, whitelist, logger)
-    _token = token
-    _log   = logger
+function rednetHandler.init(token, whitelist, logger, vaultMod)
+    _token   = token
+    _log     = logger
+    vault    = vaultMod
     _whitelist = {}
     for _, id in ipairs(whitelist or {}) do
         _whitelist[id] = true

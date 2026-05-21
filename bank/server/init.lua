@@ -52,7 +52,7 @@ vault.init(vaultPeripheral, logger)
 
 logger.info("Initialising security...")
 monitorMod.setRednet(rednetHandler)
-rednetHandler.init(token, whitelist, logger)
+rednetHandler.init(token, whitelist, logger, vault)
 
 logger.info("Startup reconciliation...")
 local sum            = profiles.sumAll()
