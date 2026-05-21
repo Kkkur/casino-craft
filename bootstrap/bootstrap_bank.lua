@@ -15,6 +15,7 @@ local MACHINE_TYPES = {
             "bank/server/vault.lua",
             "bank/server/rednet.lua",
             "bank/server/monitor.lua",
+            "bank/server/cli.lua",
         },
         startup = "bank/server/init.lua",
         peripherals = {
@@ -66,9 +67,34 @@ local MACHINE_TYPES = {
                 printWarn("No token set. All machines will be accepted if whitelisted.")
             end
 
-            printInfo("Whitelist is managed via the server monitor GUI after startup.")
-            printInfo("Computer IDs can be seen by running: print(os.getComputerID())")
+            printInfo("Whitelist is managed via the CLI on the server computer after startup.")
+            printInfo("Use: whitelist add <id>  /  whitelist list  /  whitelist remove <id>")
+            printInfo("To find a machine's ID, run: print(os.getComputerID()) on that machine.")
+
+            -- allow seeding initial IDs during bootstrap
+            term.setTextColor(colours.cyan)
+            print("\nInitial whitelist:")
+            term.setTextColor(colours.white)
+            printInfo("Enter comma-separated computer IDs to whitelist now, or leave blank.")
+            local idsRaw = prompt("Computer IDs (e.g. 12,45)", "")
             cfg.whitelist = cfg.whitelist or {}
+            if idsRaw and idsRaw ~= "" then
+                local seen = {}
+                for _, v in ipairs(cfg.whitelist) do seen[v] = true end
+                for part in idsRaw:gmatch("[^,]+") do
+                    local id = tonumber(part:match("^%s*(.-)%s*$"))
+                    if id and not seen[id] then
+                        table.insert(cfg.whitelist, id)
+                        seen[id] = true
+                        printOk("Whitelisted ID: " .. id)
+                    elseif id then
+                        printWarn("ID " .. id .. " already in list, skipping.")
+                    else
+                        printWarn("Skipping invalid entry: '" .. part .. "'")
+                    end
+                end
+            end
+            printInfo("Total whitelisted IDs: " .. #cfg.whitelist)
 
             if cfg.monitorSide then
                 cfg.monitorScale = tonumber(prompt("Monitor text scale (0.5-1)", cfg.monitorScale or 0.5))

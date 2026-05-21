@@ -8,6 +8,7 @@ local ledger        = dofile("/bank/server/ledger.lua")
 local profiles      = dofile("/bank/server/profiles.lua")
 local rednetHandler = dofile("/bank/server/rednet.lua")
 local monitorMod    = dofile("/bank/server/monitor.lua")
+local cliMod        = dofile("/bank/server/cli.lua")
 
 -- ── load config ───────────────────────────────────────────────────────────────
 
@@ -64,6 +65,9 @@ else
 end
 
 ledger.record("SERVER", "startup", nil, nil, nil)
+logger.info("Initialising CLI...")
+cliMod.init(rednetHandler, vault, profiles, ledger, logger)
+
 logger.info("Ready.")
 
 -- ── parallel runners ──────────────────────────────────────────────────────────
@@ -81,4 +85,10 @@ local function runRednet()
     rednetHandler.run()
 end
 
-parallel.waitForAll(runRednet, runMonitor)
+local function runCLI()
+    cliMod.run()
+    -- if the user types 'exit', CLI closes but server keeps running
+    while true do os.sleep(9999) end
+end
+
+parallel.waitForAll(runRednet, runMonitor, runCLI)
