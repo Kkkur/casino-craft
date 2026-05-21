@@ -298,71 +298,63 @@ local KEY_BACKSPACE = keys.backspace
 local KEY_UP        = keys.up
 local KEY_DOWN      = keys.down
 
+local _history = {}
+
 local function readline(promptStr)
     _G.write(promptStr)
     local buf     = {}
-    local history = readline._history or {}
-    local histPos = #history + 1   -- one past end = "current" slot
+    local histPos = #_history + 1   -- one past end = "current" slot
 
     while true do
-        local ev, p1, p2 = os.pullEvent()
+        local ev, p1 = os.pullEvent()
 
         if ev == "char" then
-            -- printable character
             table.insert(buf, p1)
             _G.write(p1)
 
         elseif ev == "key" then
             if p1 == KEY_ENTER then
-                _G.print("")   -- newline after input
+                _G.print("")
                 local line = table.concat(buf)
                 if line ~= "" then
-                    table.insert(history, line)
-                    readline._history = history
+                    table.insert(_history, line)
                 end
                 return line
 
             elseif p1 == KEY_BACKSPACE then
                 if #buf > 0 then
                     table.remove(buf)
-                    -- move cursor back, overwrite with space, move back again
                     _G.write("\8 \8")
                 end
 
             elseif p1 == KEY_UP then
-                -- history: go back
                 if histPos > 1 then
                     histPos = histPos - 1
-                    -- clear current line
                     local cur = table.concat(buf)
                     for _ = 1, #cur do _G.write("\8 \8") end
                     buf = {}
-                    local entry = history[histPos] or ""
+                    local entry = _history[histPos] or ""
                     for ch in entry:gmatch(".") do table.insert(buf, ch) end
                     _G.write(entry)
                 end
 
             elseif p1 == KEY_DOWN then
-                -- history: go forward
-                if histPos <= #history then
+                if histPos <= #_history then
                     histPos = histPos + 1
                     local cur = table.concat(buf)
                     for _ = 1, #cur do _G.write("\8 \8") end
                     buf = {}
-                    local entry = history[histPos] or ""
+                    local entry = _history[histPos] or ""
                     for ch in entry:gmatch(".") do table.insert(buf, ch) end
                     _G.write(entry)
                 end
             end
 
         elseif ev == "terminate" then
-            -- Ctrl+T: let the outer loop handle it gracefully
             return nil
         end
     end
 end
-
-readline._history = {}
 
 -- ── dispatch ──────────────────────────────────────────────────────────────────
 
@@ -411,7 +403,7 @@ function cli.run()
     _G.print(c(COL.bold .. COL.cyan, "\n[ Bank Server CLI ready — type 'help' for commands ]\n"))
 
     while true do
-        local line = readline(c(COL.green, "bank> "))
+        local line = readline("server> ")
         if not line then
             -- terminate event — keep server running, just re-show prompt
         elseif dispatch(line) == "exit" then
