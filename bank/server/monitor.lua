@@ -2,9 +2,16 @@
 
 local monitor = {}
 
-local ledger        = require("bank/server/ledger")
-local rednetHandler = require("bank/server/rednet")
-local profiles      = require("bank/server/profiles")
+local ledger   = dofile("/bank/server/ledger.lua")
+local profiles = dofile("/bank/server/profiles.lua")
+
+-- rednetHandler is injected by init.lua via monitor.setRednet()
+-- so both share the same instance and the same alerts/whitelist state
+local rednetHandler = nil
+
+function monitor.setRednet(rh)
+    rednetHandler = rh
+end
 
 -- monitor is 5 wide 3 tall at scale 0.5 → 26x57 chars approx
 -- we let getSize() decide at runtime
@@ -27,7 +34,7 @@ function monitor.init(peripheralName)
     _W, _H = _mon.getSize()
 end
 
--- draw primitives 
+-- ── draw primitives ───────────────────────────────────────────────────────────
 
 local function fill(y, bg)
     _mon.setCursorPos(1, y)
@@ -70,14 +77,14 @@ local function drawBtn(label, x, y, w, bg, fg)
     regBtn(label, x, y, x + w - 1, y)
 end
 
---  header 
+-- ── header ────────────────────────────────────────────────────────────────────
 
 local function drawHeader()
     fill(1, colours.grey)
     centered("\4 BANK SERVER \4", 1, colours.white, colours.grey)
 end
 
--- tab bar 
+-- ── tab bar ───────────────────────────────────────────────────────────────────
 
 local function drawTabs()
     fill(2, colours.black)
@@ -92,7 +99,7 @@ local function drawTabs()
     drawBtn("SECURITY", half + 1, 2, _W - half, sBg, sFg)
 end
 
--- ledger tab 
+-- ── ledger tab ────────────────────────────────────────────────────────────────
 
 local function drawLedgerTab()
     local lines = ledger.tail(_H - 4)
@@ -150,7 +157,7 @@ local function drawLedgerTab()
     end
 end
 
--- security tab 
+-- ── security tab ──────────────────────────────────────────────────────────────
 
 local function drawSecurityTab()
     local alerts = rednetHandler.getAlerts()
@@ -191,14 +198,14 @@ local function drawSecurityTab()
     for y = row, _H - 1 do fill(y, colours.black) end
 end
 
--- status bar 
+-- ── status bar ────────────────────────────────────────────────────────────────
 
 local function drawStatusBar()
     fill(_H, colours.grey)
     local top1  = profiles.top(1)
     local coins = 0
     -- get vault coin count via vault module if available
-    local ok, vaultMod = pcall(require, "bank.server.vault")
+    local ok, vaultMod = pcall(dofile, "/bank/server/vault.lua")
     if ok then
         local c = pcall(function() coins = vaultMod.coinCount() end)
     end
@@ -208,7 +215,7 @@ local function drawStatusBar()
     writeAt(_W - #vStr,   _H, vStr,  colours.lime,  colours.grey)
 end
 
--- full redraw 
+-- ── full redraw ───────────────────────────────────────────────────────────────
 
 local function redraw()
     _mon.clear()
@@ -227,7 +234,7 @@ local function redraw()
     drawStatusBar()
 end
 
--- touch handler 
+-- ── touch handler ─────────────────────────────────────────────────────────────
 
 local function handleTouch(x, y)
     for label, b in pairs(_buttons) do
@@ -246,7 +253,7 @@ local function handleTouch(x, y)
     end
 end
 
--- run loop 
+-- ── run loop ──────────────────────────────────────────────────────────────────
 
 function monitor.run()
     if not _mon then error("monitor: call monitor.init() first") end

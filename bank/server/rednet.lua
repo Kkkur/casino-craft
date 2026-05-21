@@ -2,9 +2,9 @@
 
 local rednetHandler = {}
 
-local profiles = require("bank/server/profiles")
-local ledger   = require("bank/server/ledger")
-local vault    = require("bank/server/vault")
+local profiles = dofile("/bank/server/profiles.lua")
+local ledger   = dofile("/bank/server/ledger.lua")
+local vault    = dofile("/bank/server/vault.lua")
 
 local PROTOCOL = "bank_protocol"
 local HOSTNAME = "bank_server"

@@ -1,12 +1,12 @@
 -- bank/server/init.lua
 
-local vault         = require("bank/server/vault")
-local ledger        = require("bank/server/ledger")
-local profiles      = require("bank/server/profiles")
-local rednetHandler = require("bank/server/rednet")
-local monitorMod    = require("bank/server/monitor")
+local vault         = dofile("/bank/server/vault.lua")
+local ledger        = dofile("/bank/server/ledger.lua")
+local profiles      = dofile("/bank/server/profiles.lua")
+local rednetHandler = dofile("/bank/server/rednet.lua")
+local monitorMod    = dofile("/bank/server/monitor.lua")
 
--- load config 
+-- ── load config ───────────────────────────────────────────────────────────────
 
 local CONFIG_FILE = "bank_config.json"
 
@@ -24,7 +24,7 @@ end
 
 local cfg = loadConfig()
 
--- validate required config fields 
+-- ── validate required config fields ──────────────────────────────────────────
 
 local function needCfg(key)
     if not cfg[key] then
@@ -39,12 +39,13 @@ local token             = cfg.token
 local whitelist         = cfg.whitelist or {}
 local coinItem          = cfg.coinItem or "createdeco:brass_coin"
 
--- init subsystems 
+-- ── init subsystems ───────────────────────────────────────────────────────────
 
 print("[server] Initialising vault...")
 vault.init(vaultPeripheral)
 
 print("[server] Initialising security...")
+monitorMod.setRednet(rednetHandler)
 rednetHandler.init(token, whitelist)
 
 print("[server] Startup reconciliation...")
@@ -60,7 +61,7 @@ end
 ledger.record("SERVER", "startup", nil, nil, nil)
 print("[server] Ready.")
 
--- parallel runners 
+-- ── parallel runners ──────────────────────────────────────────────────────────
 
 local function runMonitor()
     if not monitorPeripheral then

@@ -1,7 +1,7 @@
 -- bank/atm/init.lua
 
-local ui   = require("bank/atm/ui")
-local bank = require("libraries/bank/BankLib")
+local ui   = dofile("/bank/atm/ui.lua")
+local bank = dofile("/libraries/bank/BankLib.lua")
 
 local CONFIG_FILE = "bank_config.json"
 

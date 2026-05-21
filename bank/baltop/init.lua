@@ -1,6 +1,6 @@
 -- bank/baltop/init.lua
 
-local bank = require("libraries/bank/BankLib")
+local bank = dofile("/libraries/bank/BankLib.lua")
 
 local CONFIG_FILE = "bank_config.json"
 
