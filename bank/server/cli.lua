@@ -285,7 +285,119 @@ commands["id"] = {
     end,
 }
 
--- ── input loop ────────────────────────────────────────────────────────────────
+-- ── parallel-safe readline ────────────────────────────────────────────────────
+--
+-- _G.read() in CC suspends the entire coroutine scheduler until Enter is
+-- pressed, which means log lines printed by rednet/monitor coroutines are
+-- silently dropped or deferred.  This implementation rebuilds the line
+-- char-by-char using os.pullEvent, so control yields back to the scheduler
+-- between every keystroke.
+
+local KEY_ENTER     = keys.enter
+local KEY_BACKSPACE = keys.backspace
+local KEY_UP        = keys.up
+local KEY_DOWN      = keys.down
+
+local function readline(promptStr)
+    _G.write(promptStr)
+    local buf     = {}
+    local history = readline._history or {}
+    local histPos = #history + 1   -- one past end = "current" slot
+
+    while true do
+        local ev, p1, p2 = os.pullEvent()
+
+        if ev == "char" then
+            -- printable character
+            table.insert(buf, p1)
+            _G.write(p1)
+
+        elseif ev == "key" then
+            if p1 == KEY_ENTER then
+                _G.print("")   -- newline after input
+                local line = table.concat(buf)
+                if line ~= "" then
+                    table.insert(history, line)
+                    readline._history = history
+                end
+                return line
+
+            elseif p1 == KEY_BACKSPACE then
+                if #buf > 0 then
+                    table.remove(buf)
+                    -- move cursor back, overwrite with space, move back again
+                    _G.write("\8 \8")
+                end
+
+            elseif p1 == KEY_UP then
+                -- history: go back
+                if histPos > 1 then
+                    histPos = histPos - 1
+                    -- clear current line
+                    local cur = table.concat(buf)
+                    for _ = 1, #cur do _G.write("\8 \8") end
+                    buf = {}
+                    local entry = history[histPos] or ""
+                    for ch in entry:gmatch(".") do table.insert(buf, ch) end
+                    _G.write(entry)
+                end
+
+            elseif p1 == KEY_DOWN then
+                -- history: go forward
+                if histPos <= #history then
+                    histPos = histPos + 1
+                    local cur = table.concat(buf)
+                    for _ = 1, #cur do _G.write("\8 \8") end
+                    buf = {}
+                    local entry = history[histPos] or ""
+                    for ch in entry:gmatch(".") do table.insert(buf, ch) end
+                    _G.write(entry)
+                end
+            end
+
+        elseif ev == "terminate" then
+            -- Ctrl+T: let the outer loop handle it gracefully
+            return nil
+        end
+    end
+end
+
+readline._history = {}
+
+-- ── dispatch ──────────────────────────────────────────────────────────────────
+
+local function dispatch(line)
+    line = line:match("^%s*(.-)%s*$")   -- trim
+    if line == "" then return end
+
+    if line == "exit" or line == "quit" then
+        warn("CLI closed. Server still running.")
+        return "exit"
+    end
+
+    local first, rest     = line:match("^(%S+)%s*(.*)")
+    local second, restrest = (rest or ""):match("^(%S+)%s*(.*)")
+    local twoWord = first and second and (first .. " " .. second)
+    local cmd, argStr
+
+    if twoWord and commands[twoWord] then
+        cmd    = commands[twoWord]
+        argStr = restrest or ""
+    elseif first and commands[first] then
+        cmd    = commands[first]
+        argStr = rest or ""
+    else
+        err("Unknown command: '" .. line .. "'  (try 'help')")
+        return
+    end
+
+    local args = {}
+    for token in argStr:gmatch("%S+") do table.insert(args, token) end
+    local ok3, e = pcall(cmd.run, args)
+    if not ok3 then err("Command error: " .. tostring(e)) end
+end
+
+-- ── public API ────────────────────────────────────────────────────────────────
 
 function cli.init(rednetHandler, vaultMod, profilesMod, ledgerMod, logger)
     _rednet   = rednetHandler
@@ -299,40 +411,11 @@ function cli.run()
     _G.print(c(COL.bold .. COL.cyan, "\n[ Bank Server CLI ready — type 'help' for commands ]\n"))
 
     while true do
-        _G.write(c(COL.green, "bank> "))
-        local line = _G.read()
-        if not line then break end
-
-        line = line:match("^%s*(.-)%s*$")   -- trim
-        if line == "" then
-            -- ignore blank lines
-        elseif line == "exit" or line == "quit" then
-            warn("CLI closed. Server still running.")
+        local line = readline(c(COL.green, "bank> "))
+        if not line then
+            -- terminate event — keep server running, just re-show prompt
+        elseif dispatch(line) == "exit" then
             break
-        else
-            -- try two-word command first, then one-word
-            local first, rest = line:match("^(%S+)%s*(.*)")
-            local second, restrest = (rest or ""):match("^(%S+)%s*(.*)")
-            local twoWord = first and second and (first .. " " .. second)
-            local cmd, argStr
-
-            if twoWord and commands[twoWord] then
-                cmd    = commands[twoWord]
-                argStr = restrest or ""
-            elseif first and commands[first] then
-                cmd    = commands[first]
-                argStr = rest or ""
-            else
-                err("Unknown command: '" .. line .. "'  (try 'help')")
-                cmd = nil
-            end
-
-            if cmd then
-                local args = {}
-                for token in argStr:gmatch("%S+") do table.insert(args, token) end
-                local ok3, e = pcall(cmd.run, args)
-                if not ok3 then err("Command error: " .. tostring(e)) end
-            end
         end
     end
 end
