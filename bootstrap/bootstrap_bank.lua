@@ -9,6 +9,7 @@ local MACHINE_TYPES = {
         label   = "Bank Server",
         files   = {
             "libraries/logger/logger.lua",
+            "libraries/currencylib.lua",
             "bank/server/init.lua",
             "bank/server/ledger.lua",
             "bank/server/profiles.lua",
@@ -108,6 +109,7 @@ local MACHINE_TYPES = {
         label   = "ATM Terminal",
         files   = {
             "libraries/logger/logger.lua",
+            "libraries/currencylib.lua",
             "bank/atm/init.lua",
             "bank/atm/ui.lua",
             "libraries/bank/BankLib.lua",
@@ -193,6 +195,7 @@ local MACHINE_TYPES = {
         label   = "Baltop Display",
         files   = {
             "libraries/logger/logger.lua",
+            "libraries/currencylib.lua",
             "bank/baltop/init.lua",
             "libraries/bank/BankLib.lua",
         },
