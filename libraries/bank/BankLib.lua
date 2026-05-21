@@ -12,7 +12,7 @@ local bank = {}
 -- ── config ────────────────────────────────────────────────────────────────────
 
 local PROTOCOL   = "bank_protocol"
-local HOSTNAME   = "bank_server_1"   -- must match rednet.lua HOSTNAME
+local HOSTNAME   = "bank_server"   -- must match rednet.lua HOSTNAME
 local PING_TIMEOUT  = 3   -- seconds to wait for ping reply
 local TX_TIMEOUT    = 5   -- seconds to wait for transaction confirmation
 
@@ -224,10 +224,22 @@ end
 function bank.top(limit)
     local serverId = resolveServer()
     if not serverId then return {}, "server_not_found" end
-    local reply = sendAndWait(serverId, { action = "top", limit = limit or 10 }, _txTimeout)
-    if not reply    then return {}, "timeout"            end
-    if not reply.ok then return {}, reply.err or "error" end
-    return reply.top
+    -- "top" is a public action on the server; send a bare request (no token/checksum)
+    rednet.send(serverId, { action = "top", limit = limit or 10 }, _protocol)
+    local timer = os.startTimer(_txTimeout)
+    while true do
+        local ev, p1, p2 = os.pullEvent()
+        if ev == "rednet_message" and p1 == serverId then
+            os.cancelTimer(timer)
+            local reply = p2
+            if not reply    then return {}, "timeout"            end
+            if not reply.ok then return {}, reply.err or "error" end
+            return reply.top
+        end
+        if ev == "timer" and p1 == timer then
+            return {}, "timeout"
+        end
+    end
 end
 
 return bank

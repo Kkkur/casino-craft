@@ -210,19 +210,30 @@ function rednetHandler.run()
         _log.info("Computer ID: " .. os.getComputerID())
     end
 
+    -- Actions that are public read-only and skip auth entirely
+    local PUBLIC_ACTIONS = { top = true }
+
     while true do
         local senderId, msg = rednet.receive(PROTOCOL)
         if type(msg) == "table" then
             if _log then _log.net("RECV", senderId, PROTOCOL, msg.action or "?") end
-            local ok, reason = validateRequest(senderId, msg)
-            if ok then
-                local reply = handle(senderId, msg)
-                rednet.send(senderId, reply, PROTOCOL)
-                if _log then _log.net("SEND", senderId, PROTOCOL, reply.ok and "ok" or "err:" .. tostring(reply.err)) end
+
+            local reply
+            if PUBLIC_ACTIONS[msg.action] then
+                -- no auth required for public reads
+                reply = handle(senderId, msg)
             else
-                if _log then _log.warn("Rejected ID " .. tostring(senderId) .. ": " .. tostring(reason)) end
-                rednet.send(senderId, { ok = false, err = reason }, PROTOCOL)
+                local ok, reason = validateRequest(senderId, msg)
+                if ok then
+                    reply = handle(senderId, msg)
+                else
+                    if _log then _log.warn("Rejected ID " .. tostring(senderId) .. ": " .. tostring(reason)) end
+                    reply = { ok = false, err = reason }
+                end
             end
+
+            rednet.send(senderId, reply, PROTOCOL)
+            if _log then _log.net("SEND", senderId, PROTOCOL, reply.ok and "ok" or "err:" .. tostring(reply.err)) end
         end
     end
 end

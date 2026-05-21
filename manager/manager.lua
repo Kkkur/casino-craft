@@ -6,27 +6,9 @@ local Net         = dofile("dependencies/rednet_manager.lua")
 local UI          = dofile("dependencies/ui.lua")
 local logger      = dofile("dependencies/logger.lua")
 local Leaderboard = dofile("dependencies/leaderboards/leaderboard.lua")
-local Currency    = dofile("dependencies/currency.lua")
+local Currency    = dofile("libraries/currencylib.lua")
 
 -- CONFIG
-
-local CHIP_VALUE_SPURS = 8   -- default: 1 chip = 8 spurs (1 bevel)
-
-local function loadChipValue()
-    if fs.exists("chip_value.txt") then
-        local f = fs.open("chip_value.txt", "r")
-        if f then
-            local n = tonumber(f.readLine())
-            f.close()
-            if n and n > 0 then
-                CHIP_VALUE_SPURS = n
-                logger.info("Chip value loaded: 1 chip = " .. n .. " spurs")
-                return
-            end
-        end
-    end
-    logger.info("Chip value: default 1 chip = " .. CHIP_VALUE_SPURS .. " spurs")
-end
 
 -- RESERVE BARREL
 
@@ -76,7 +58,7 @@ local function readReserve()
         return 0, 0, "Error reading reserve: " .. tostring(result)
     end
 
-    local spurs = result * CHIP_VALUE_SPURS
+    local spurs = result * Currency.CHIP_VALUE_SPURS
     return result, spurs, nil
 end
 
@@ -104,7 +86,7 @@ local FS_FILES = {
     "bj_ui.lua",
     "bj_machine.lua",
     "bj_startup.lua",
-    "currency.lua",
+    "libraries/currencylib.lua",
     "rednet_manager.lua",
     "player_detector.lua",
 }
@@ -159,7 +141,6 @@ end
 logger.init()
 logger.info("Casino Manager starting up...")
 
-loadChipValue()
 loadReserveConfig()
 
 Data.load()
@@ -265,9 +246,9 @@ local function handleBlackjackResult(senderId, msg)
     local player     = msg.player or "Unknown"
     local mult       = PAYOUT_RATIOS[result] or 0
 
-    local betSpurs    = betChips * CHIP_VALUE_SPURS
+    local betSpurs    = betChips * Currency.CHIP_VALUE_SPURS
     local payoutChips = math.floor(betChips * mult)
-    local payoutSpurs = payoutChips * CHIP_VALUE_SPURS
+    local payoutSpurs = payoutChips * Currency.CHIP_VALUE_SPURS
 
     local profitSpurs = betSpurs - payoutSpurs
 
@@ -553,9 +534,9 @@ end
 
 refreshUI()
 UI.setStatus("Manager online. ID: " .. os.getComputerID()
-    .. " | 1 chip = " .. Currency.format(CHIP_VALUE_SPURS), 5)
+    .. " | 1 chip = " .. Currency.format(Currency.CHIP_VALUE_SPURS), 5)
 logger.info("Main loop starting. Ready. Chip value: 1 chip = "
-    .. CHIP_VALUE_SPURS .. " spurs (" .. Currency.format(CHIP_VALUE_SPURS) .. ")")
+    .. Currency.CHIP_VALUE_SPURS .. " spurs (" .. Currency.format(Currency.CHIP_VALUE_SPURS) .. ")")
 
 local function mainLoop()
     while true do
