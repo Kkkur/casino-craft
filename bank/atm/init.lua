@@ -1,10 +1,10 @@
 -- bank/atm/init.lua
 
-local Logger = dofile("/libraries/logger/Logger.lua")
+local Logger = dofile("libraries/logger/Logger.lua")
 Logger.init("atm", "bank/atm/logs")
 
-local ui   = dofile("/bank/atm/ui.lua")
-local bank = dofile("/libraries/bank/BankLib.lua")
+local ui   = dofile("bank/atm/ui.lua")
+local bank = dofile("libraries/bank/BankLib.lua")
 
 local CONFIG_FILE = "bank_config.json"
 
