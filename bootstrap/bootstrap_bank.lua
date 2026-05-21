@@ -1,46 +1,76 @@
--- bank/bootstrap.lua
--- Single bootstrap for all bank machines.
+-- bootstrap/bootstrap_bank.lua
 
 local CONFIG_FILE = "bank_config.json"
 local BASE_URL    = "https://raw.githubusercontent.com/Kkkur/casino-craft/refs/heads/dev/dziksonn/"
-
--- machine type definitions 
 
 local MACHINE_TYPES = {
     {
         id      = "server",
         label   = "Bank Server",
         files   = {
-            "bank/server.lua",
-            "libraries/bank/BankLib.lua",
+            "bank/server/init.lua",
+            "bank/server/ledger.lua",
+            "bank/server/profiles.lua",
+            "bank/server/vault.lua",
+            "bank/server/rednet.lua",
+            "bank/server/monitor.lua",
         },
-        startup = "bank/server.lua",
+        startup = "bank/server/init.lua",
         peripherals = {
             {
-                label    = "Baltop monitor",
+                label    = "Server monitor",
                 versions = { "monitor" },
                 key      = "monitorSide",
                 optional = true,
             },
         },
-        extraSetup = function(cfg, prompt, printOk, printWarn)
-            -- Network
+        extraSetup = function(cfg, prompt, printOk, printWarn, printInfo)
             term.setTextColor(colours.cyan)
-            print("\nNetwork / rednet:")
+            print("\nVault:")
             term.setTextColor(colours.white)
-            cfg.protocol    = prompt("Rednet protocol name", cfg.protocol    or "bank_protocol")
-            cfg.hostname    = prompt("Rednet hostname",      cfg.hostname    or "bank_server")
-            cfg.bankTimeout = tonumber(prompt("Request timeout (s)", cfg.bankTimeout or 3))
 
-            -- Persistence
+            local allNames = {}
+            for _, n in ipairs(peripheral.getNames()) do allNames[n] = true end
+
+            printInfo("Available peripherals on network:")
+            for _, n in ipairs(peripheral.getNames()) do
+                printInfo("  " .. n .. " (" .. (peripheral.getType(n) or "?") .. ")")
+            end
+
+            local savedVault = cfg.vaultPeripheral
+            local vaultName  = prompt("Vault peripheral name (e.g. create:item_vault_0)", savedVault)
+            if not vaultName or vaultName == "" then
+                printWarn("No vault name entered.")
+                return nil
+            end
+            if allNames[vaultName] then
+                printOk("Vault found: " .. vaultName)
+            else
+                printWarn(vaultName .. " not visible on network right now. Saved anyway.")
+            end
+            cfg.vaultPeripheral = vaultName
+
+            cfg.coinItem = prompt("Coin item ID", cfg.coinItem or "createdeco:brass_coin")
+
             term.setTextColor(colours.cyan)
-            print("\nPersistence:")
+            print("\nSecurity:")
             term.setTextColor(colours.white)
-            cfg.saveFile = prompt("Balance save file", cfg.saveFile or "balances.json")
+            printInfo("The shared token must be the same on all machines.")
+            printInfo("Leave blank to disable token authentication.")
+            local token = prompt("Shared secret token", cfg.token or "")
+            cfg.token = (token and token ~= "") and token or nil
+            if cfg.token then
+                printOk("Token set.")
+            else
+                printWarn("No token set. All machines will be accepted if whitelisted.")
+            end
 
-            -- Baltop refresh (only relevant if monitor was found)
+            printInfo("Whitelist is managed via the server monitor GUI after startup.")
+            printInfo("Computer IDs can be seen by running: print(os.getComputerID())")
+            cfg.whitelist = cfg.whitelist or {}
+
             if cfg.monitorSide then
-                cfg.baltopRefresh = tonumber(prompt("Baltop refresh interval (s)", cfg.baltopRefresh or 5))
+                cfg.monitorScale = tonumber(prompt("Monitor text scale (0.5-1)", cfg.monitorScale or 0.5))
             end
 
             return cfg
@@ -50,10 +80,11 @@ local MACHINE_TYPES = {
         id      = "atm",
         label   = "ATM Terminal",
         files   = {
-            "bank/atm.lua",
+            "bank/atm/init.lua",
+            "bank/atm/ui.lua",
             "libraries/bank/BankLib.lua",
         },
-        startup = "bank/atm.lua",
+        startup = "bank/atm/init.lua",
         peripherals = {
             {
                 label    = "ATM monitor",
@@ -68,8 +99,7 @@ local MACHINE_TYPES = {
                 optional = false,
             },
         },
-        extraSetup = function(cfg, prompt, printOk, printWarn)
-            -- Bank connection
+        extraSetup = function(cfg, prompt, printOk, printWarn, printInfo)
             term.setTextColor(colours.cyan)
             print("\nBank connection:")
             term.setTextColor(colours.white)
@@ -77,33 +107,55 @@ local MACHINE_TYPES = {
             cfg.hostname    = prompt("Rednet hostname",      cfg.hostname    or "bank_server")
             cfg.bankTimeout = tonumber(prompt("Request timeout (s)", cfg.bankTimeout or 3))
 
-            -- Monitor scale
-            cfg.monitorScale = tonumber(prompt("Monitor text scale (0.5-2)", cfg.monitorScale or 1))
-            cfg.playerRange  = tonumber(prompt("Player detection range (blocks)", cfg.playerRange or 2))
-
-            -- Barrels
             term.setTextColor(colours.cyan)
-            print("\nBarrel configuration (wired network):")
+            print("\nSecurity:")
+            term.setTextColor(colours.white)
+            printInfo("Must match the token set on the server.")
+            local token = prompt("Shared secret token", cfg.token or "")
+            cfg.token = (token and token ~= "") and token or nil
+            if cfg.token then printOk("Token set.") else printWarn("No token set.") end
+
+            term.setTextColor(colours.cyan)
+            print("\nPeripherals:")
             term.setTextColor(colours.white)
 
             local allNames = {}
             for _, n in ipairs(peripheral.getNames()) do allNames[n] = true end
 
-            local savedInputNum = cfg.inputBarrel and tonumber(cfg.inputBarrel:match("(%d+)$"))
-            local inputNum = tonumber(prompt("Input barrel number (player deposits, e.g. 3)", savedInputNum))
-            if not inputNum then printWarn("Invalid number, skipping input barrel.") return nil end
-            cfg.inputBarrel = "minecraft:barrel_" .. inputNum
-            if allNames[cfg.inputBarrel] then printOk("Input barrel: " .. cfg.inputBarrel)
-            else printWarn(cfg.inputBarrel .. " not visible on network right now.") end
+            printInfo("Available peripherals on network:")
+            for _, n in ipairs(peripheral.getNames()) do
+                printInfo("  " .. n .. " (" .. (peripheral.getType(n) or "?") .. ")")
+            end
 
-            local savedStorageNum = cfg.storageBarrel and tonumber(cfg.storageBarrel:match("(%d+)$"))
-            local storageNum = tonumber(prompt("Storage barrel number (vault, e.g. 4)", savedStorageNum))
-            if not storageNum then printWarn("Invalid number, skipping storage barrel.") return nil end
-            cfg.storageBarrel = "minecraft:barrel_" .. storageNum
-            if allNames[cfg.storageBarrel] then printOk("Storage barrel: " .. cfg.storageBarrel)
-            else printWarn(cfg.storageBarrel .. " not visible on network right now.") end
+            local savedVault = cfg.vaultPeripheral
+            local vaultName  = prompt("Vault peripheral name (e.g. create:item_vault_0)", savedVault)
+            if not vaultName or vaultName == "" then
+                printWarn("No vault name entered.")
+                return nil
+            end
+            if allNames[vaultName] then
+                printOk("Vault found: " .. vaultName)
+            else
+                printWarn(vaultName .. " not visible on network right now. Saved anyway.")
+            end
+            cfg.vaultPeripheral = vaultName
 
-            cfg.coinItem = prompt("Coin item ID", cfg.coinItem or "createdeco:brass_coin")
+            local savedBarrel = cfg.inputBarrel
+            local barrelName  = prompt("Input barrel peripheral name (player deposits coins here)", savedBarrel)
+            if not barrelName or barrelName == "" then
+                printWarn("No input barrel name entered.")
+                return nil
+            end
+            if allNames[barrelName] then
+                printOk("Input barrel found: " .. barrelName)
+            else
+                printWarn(barrelName .. " not visible on network right now. Saved anyway.")
+            end
+            cfg.inputBarrel = barrelName
+
+            cfg.coinItem     = prompt("Coin item ID",                    cfg.coinItem     or "createdeco:brass_coin")
+            cfg.monitorScale = tonumber(prompt("Monitor text scale (0.5-2)", cfg.monitorScale or 1))
+            cfg.playerRange  = tonumber(prompt("Player detection range (blocks)", cfg.playerRange or 2))
 
             return cfg
         end,
@@ -112,10 +164,10 @@ local MACHINE_TYPES = {
         id      = "baltop",
         label   = "Baltop Display",
         files   = {
-            "bank/server.lua",
+            "bank/baltop/init.lua",
             "libraries/bank/BankLib.lua",
         },
-        startup = "bank/server.lua",
+        startup = "bank/baltop/init.lua",
         peripherals = {
             {
                 label    = "Baltop monitor",
@@ -124,20 +176,27 @@ local MACHINE_TYPES = {
                 optional = false,
             },
         },
-        extraSetup = function(cfg, prompt, printOk, printWarn)
+        extraSetup = function(cfg, prompt, printOk, printWarn, printInfo)
             term.setTextColor(colours.cyan)
             print("\nBank connection:")
             term.setTextColor(colours.white)
-            cfg.protocol      = prompt("Rednet protocol name",       cfg.protocol      or "bank_protocol")
-            cfg.hostname      = prompt("Rednet hostname",            cfg.hostname      or "bank_server")
-            cfg.bankTimeout   = tonumber(prompt("Request timeout (s)", cfg.bankTimeout or 3))
+            cfg.protocol      = prompt("Rednet protocol name", cfg.protocol      or "bank_protocol")
+            cfg.hostname      = prompt("Rednet hostname",      cfg.hostname      or "bank_server")
+            cfg.bankTimeout   = tonumber(prompt("Request timeout (s)", cfg.bankTimeout   or 3))
             cfg.baltopRefresh = tonumber(prompt("Refresh interval (s)", cfg.baltopRefresh or 5))
+
+            term.setTextColor(colours.cyan)
+            print("\nSecurity:")
+            term.setTextColor(colours.white)
+            printInfo("Must match the token set on the server.")
+            local token = prompt("Shared secret token", cfg.token or "")
+            cfg.token = (token and token ~= "") and token or nil
+            if cfg.token then printOk("Token set.") else printWarn("No token set.") end
+
             return cfg
         end,
     },
 }
-
--- ── UI helpers ────────────────────────────────────────────────────────────────
 
 local function clear()
     term.setBackgroundColor(colours.black)
@@ -154,19 +213,27 @@ local function header(isUpdate)
 end
 
 local function printOk(msg)
-    term.setTextColor(colours.lime);   print("[OK]  " .. msg); term.setTextColor(colours.white)
+    term.setTextColor(colours.lime)
+    print("[OK]  " .. msg)
+    term.setTextColor(colours.white)
 end
 
 local function printErr(msg)
-    term.setTextColor(colours.red);    print("[ERR] " .. msg); term.setTextColor(colours.white)
+    term.setTextColor(colours.red)
+    print("[ERR] " .. msg)
+    term.setTextColor(colours.white)
 end
 
 local function printWarn(msg)
-    term.setTextColor(colours.yellow); print("[!!!] " .. msg); term.setTextColor(colours.white)
+    term.setTextColor(colours.yellow)
+    print("[!!!] " .. msg)
+    term.setTextColor(colours.white)
 end
 
 local function printInfo(msg)
-    term.setTextColor(colours.lightGrey); print("      " .. msg); term.setTextColor(colours.white)
+    term.setTextColor(colours.lightGrey)
+    print("      " .. msg)
+    term.setTextColor(colours.white)
 end
 
 local function prompt(msg, default)
@@ -178,37 +245,38 @@ local function prompt(msg, default)
     end
     term.setTextColor(colours.white)
     local input = io.read()
-    if input == "" then return default end
+    if input == nil or input == "" then return default end
     return input
 end
-
--- ── persistence ───────────────────────────────────────────────────────────────
 
 local function loadConfig()
     if not fs.exists(CONFIG_FILE) then return {} end
     local f = io.open(CONFIG_FILE, "r")
     if not f then return {} end
-    local raw = f:read("*a"); f:close()
+    local raw = f:read("*a")
+    f:close()
     local ok, data = pcall(textutils.unserialiseJSON, raw)
     return (ok and type(data) == "table") and data or {}
 end
 
 local function saveConfig(cfg)
     local f = io.open(CONFIG_FILE, "w")
-    if not f then printErr("Could not write " .. CONFIG_FILE); return false end
-    f:write(textutils.serialiseJSON(cfg)); f:close()
+    if not f then
+        printErr("Could not write " .. CONFIG_FILE)
+        return false
+    end
+    f:write(textutils.serialiseJSON(cfg))
+    f:close()
     return true
 end
 
--- ── modem ─────────────────────────────────────────────────────────────────────
-
 local function openModem()
-    for _, side in ipairs({"top","bottom","left","right","front","back"}) do
+    for _, side in ipairs({ "top", "bottom", "left", "right", "front", "back" }) do
         if peripheral.getType(side) == "modem" then
             local m = peripheral.wrap(side)
             if m and m.isWireless and m.isWireless() then
                 rednet.open(side)
-                printInfo("Modem opened on: " .. side)
+                printInfo("Wireless modem opened on: " .. side)
                 return true
             end
         end
@@ -217,14 +285,12 @@ local function openModem()
     return false
 end
 
--- ── machine type selection ────────────────────────────────────────────────────
-
 local function selectMachineType(savedId)
     if savedId then
         for _, mt in ipairs(MACHINE_TYPES) do
             if mt.id == savedId then
-                local ans = prompt("Saved machine type: " .. mt.label .. " — use this? [Y/n]", "y")
-                if ans:lower() == "y" or ans == "" then return mt end
+                local ans = prompt("Saved machine type: " .. mt.label .. ". Use this?", "y")
+                if ans:lower() == "y" then return mt end
                 break
             end
         end
@@ -244,15 +310,13 @@ local function selectMachineType(savedId)
     return MACHINE_TYPES[n]
 end
 
--- ── peripheral detection ──────────────────────────────────────────────────────
-
 local function findAllMatching(versions)
     local found = {}
     local vset  = {}
     for _, v in ipairs(versions) do vset[v] = true end
     for _, name in ipairs(peripheral.getNames()) do
         if vset[peripheral.getType(name)] then
-            found[#found+1] = { name = name, typeName = peripheral.getType(name) }
+            found[#found + 1] = { name = name, typeName = peripheral.getType(name) }
         end
     end
     return found
@@ -273,7 +337,6 @@ local function detectPeripherals(machineType, savedCfg)
             printOk(periph.label .. ": " .. matches[1].name)
 
         elseif #matches > 1 then
-            -- Use saved side if still valid
             if savedCfg[periph.key] then
                 for _, m in ipairs(matches) do
                     if m.name == savedCfg[periph.key] then
@@ -283,15 +346,16 @@ local function detectPeripherals(machineType, savedCfg)
                     end
                 end
             end
-            -- Let user pick
             print("Multiple " .. periph.label .. " found:")
-            for i, m in ipairs(matches) do print("  [" .. i .. "] " .. m.name) end
+            for i, m in ipairs(matches) do
+                print("  [" .. i .. "] " .. m.name)
+            end
             local choice = tonumber(prompt("Choose " .. periph.label))
             if choice and matches[choice] then
                 result[periph.key] = matches[choice].name
                 printOk(periph.label .. ": " .. matches[choice].name)
             elseif periph.optional then
-                printWarn(periph.label .. ": invalid choice, skipping (optional).")
+                printWarn(periph.label .. ": skipping (optional).")
             else
                 printErr(periph.label .. ": invalid choice (required).")
                 return nil
@@ -300,7 +364,7 @@ local function detectPeripherals(machineType, savedCfg)
 
         else
             if periph.optional then
-                printWarn(periph.label .. " not found (optional — skipping).")
+                printWarn(periph.label .. " not found (optional, skipping).")
                 result[periph.key] = nil
             else
                 printErr(periph.label .. " not found (required).")
@@ -312,19 +376,27 @@ local function detectPeripherals(machineType, savedCfg)
     return result
 end
 
--- ── download ──────────────────────────────────────────────────────────────────
-
 local function downloadFile(remotePath, localPath)
     io.write("  " .. remotePath .. "... ")
     local url = BASE_URL .. remotePath .. "?t=" .. os.epoch("utc")
     local res = http.get(url, nil, true)
-    if not res then print("FAILED"); return false end
-    local content = res.readAll(); res.close()
+    if not res then
+        print("FAILED")
+        return false
+    end
+    local content = res.readAll()
+    res.close()
     local dir = localPath:match("^(.*)/[^/]+$")
-    if dir and dir ~= "" and not fs.exists(dir) then fs.makeDir(dir) end
+    if dir and dir ~= "" and not fs.exists(dir) then
+        fs.makeDir(dir)
+    end
     local f = io.open(localPath, "w")
-    if not f then print("WRITE ERROR"); return false end
-    f:write(content); f:close()
+    if not f then
+        print("WRITE ERROR")
+        return false
+    end
+    f:write(content)
+    f:close()
     term.setTextColor(colours.lime)
     print("OK (" .. #content .. " bytes)")
     term.setTextColor(colours.white)
@@ -337,73 +409,72 @@ local function downloadAll(files)
     term.setTextColor(colours.white)
     local failed = {}
     for _, path in ipairs(files) do
-        if not downloadFile(path, path) then failed[#failed+1] = path end
+        if not downloadFile(path, path) then
+            failed[#failed + 1] = path
+        end
     end
     return failed
 end
 
--- ── startup shim ──────────────────────────────────────────────────────────────
-
 local function writeStartup(startupFile)
     local f = io.open("startup.lua", "w")
-    if not f then printErr("Could not write startup.lua!"); return false end
+    if not f then
+        printErr("Could not write startup.lua!")
+        return false
+    end
     f:write('shell.run("' .. startupFile .. '")\n')
     f:close()
-    printOk("startup.lua → " .. startupFile)
+    printOk("startup.lua written, will run: " .. startupFile)
     return true
 end
 
--- ── main ──────────────────────────────────────────────────────────────────────
+-- main
 
 local savedCfg = loadConfig()
 local isUpdate = (savedCfg.machineType ~= nil)
-
-if fs.exists(CONFIG_FILE) then fs.delete(CONFIG_FILE) end
 
 clear()
 header(isUpdate)
 
 if isUpdate then
-    printInfo("Existing config found. Re-running will update all files.")
+    printInfo("Existing config found for machine type: " .. tostring(savedCfg.machineType))
+    printInfo("Re-running will re-download all files and update config.")
     printInfo("Press Enter to continue or Ctrl+T to abort.")
     io.read()
 end
 
--- Step 1: Machine type
 local machineType = selectMachineType(savedCfg.machineType)
 if not machineType then return end
 
--- Step 2: Open modem
 if not openModem() then return end
 
--- Step 3: Detect peripherals
 local periphCfg = detectPeripherals(machineType, savedCfg)
 if not periphCfg then
     printErr("Required peripheral(s) missing. Fix hardware and re-run.")
     return
 end
 
--- Merge peripheral results into savedCfg so extraSetup can see them
 for k, v in pairs(periphCfg) do savedCfg[k] = v end
 
--- Step 4: Machine-specific questions
-local cfg = machineType.extraSetup(savedCfg, prompt, printOk, printWarn)
+local cfg = machineType.extraSetup(savedCfg, prompt, printOk, printWarn, printInfo)
 if not cfg then
-    printErr("Setup failed. Fix config and re-run.")
+    printErr("Setup incomplete. Fix config and re-run.")
     return
 end
 
--- Step 5: Download files
+term.setTextColor(colours.cyan)
+print("\nDownloading files...")
+term.setTextColor(colours.white)
+
 local failed = downloadAll(machineType.files)
 if #failed > 0 then
-    printErr("Failed to download:")
+    printErr("Failed to download " .. #failed .. " file(s):")
     for _, fname in ipairs(failed) do printInfo(fname) end
-    printErr("Bootstrap incomplete. Fix connection and try again.")
+    printErr("Bootstrap incomplete. Fix connection and re-run.")
     return
 end
 printOk("All " .. #machineType.files .. " file(s) downloaded.")
 
--- Step 6: Save config
 cfg.machineType = machineType.id
 if not saveConfig(cfg) then
     printErr("Could not save config, halting.")
@@ -411,13 +482,12 @@ if not saveConfig(cfg) then
 end
 printOk("Config saved to " .. CONFIG_FILE)
 
--- Step 7: Write startup shim
-writeStartup(machineType.startup)
+if not writeStartup(machineType.startup) then return end
 
--- Done
 term.setTextColor(colours.yellow)
 print("\n================================")
 print(isUpdate and "  Update complete!" or "  Bootstrap complete!")
+print("  Computer ID: " .. os.getComputerID())
 print("  Rebooting in 3 seconds...")
 print("================================")
 term.setTextColor(colours.white)
