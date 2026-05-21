@@ -13,7 +13,7 @@
 
 local Currency = {}
 
--- ── chip value ────────────────────────────────────────────────────────────────
+-- chip value 
 
 Currency.CHIP_VALUE_SPURS = 8   -- 1 chip = 8 spurs (1 bevel) by default
 
@@ -41,7 +41,7 @@ function Currency.spursToChips(spurs)
     return math.floor(spurs / Currency.CHIP_VALUE_SPURS)
 end
 
--- ── denomination table ────────────────────────────────────────────────────────
+-- denomination table 
 
 Currency.DENOM = {
     { name = "sun",      plural = "suns",      value = 32768 },
@@ -61,7 +61,7 @@ Currency.SHORT = {
     spur     = "sp",
 }
 
--- ── conversion helpers ────────────────────────────────────────────────────────
+-- conversion helpers 
 
 -- Break a raw spur amount into denomination counts (largest first, zeros omitted)
 function Currency.toCoins(spurs)
@@ -98,7 +98,7 @@ function Currency.toSpurs(coins)
     return total
 end
 
--- ── formatting ────────────────────────────────────────────────────────────────
+-- formatting 
 
 -- Short compact string, e.g. "2bev 3sp"  (up to maxDenoms parts)
 function Currency.format(spurs, maxDenoms)
@@ -130,7 +130,7 @@ function Currency.formatChips(chips, maxDenoms)
     return tostring(chips) .. " chips (" .. Currency.format(spurs, maxDenoms) .. ")"
 end
 
--- ── parsing ───────────────────────────────────────────────────────────────────
+-- parsing 
 
 -- Parse a string like "1bev 3sp" or "2 bevels 1 spur" into raw spurs
 function Currency.parse(str)

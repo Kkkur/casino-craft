@@ -43,7 +43,7 @@ function ui.getSize()
     return _W, _H
 end
 
--- ── primitives ────────────────────────────────────────────────────────────────
+-- primitives 
 
 local function fillLine(y, bg)
     _mon.setCursorPos(1, y)
@@ -93,7 +93,7 @@ local function drawBtn(label, x, y, w, bg, fg)
     regBtn(label, x, y, x + w - 1, y)
 end
 
--- ── sections ──────────────────────────────────────────────────────────────────
+-- sections 
 
 function ui.drawHeader()
     fillLine(1, C.headerBg)
@@ -165,7 +165,7 @@ function ui.drawActionButtons()
     drawBtn("WITHDRAW", half + 1, _H, _W - half, C.btnWithdraw)
 end
 
--- ── full redraw ───────────────────────────────────────────────────────────────
+-- full redraw 
 
 function ui.redraw(state)
     _mon.clear()

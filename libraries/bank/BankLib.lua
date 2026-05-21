@@ -9,7 +9,7 @@
 
 local bank = {}
 
--- ── config ────────────────────────────────────────────────────────────────────
+-- config 
 
 local PROTOCOL   = "bank_protocol"
 local HOSTNAME   = "bank_server"   -- must match rednet.lua HOSTNAME
@@ -26,7 +26,7 @@ local _computerID = os.getComputerID()
 local _log        = nil   -- optional logger injected via bank.setLogger()
 local _ready      = false -- true after bank.connect() succeeds
 
--- ── internal helpers ──────────────────────────────────────────────────────────
+-- internal helpers 
 
 local function log(level, msg)
     if _log and _log[level] then _log[level]("[BankLib] " .. msg)
@@ -94,7 +94,7 @@ local function sendAndWait(serverId, msg, timeout)
     end
 end
 
--- ── public API ─────────────────────────────────────────────────────────────────
+-- public API 
 
 -- Inject a logger (same interface as libraries/logger/logger.lua)
 function bank.setLogger(logger)
@@ -140,7 +140,7 @@ function bank.ping()
     return reply ~= nil and reply.ok == true
 end
 
--- ── transaction helpers (internal) ───────────────────────────────────────────
+-- transaction helpers (internal) 
 
 -- Full ping → tx → confirm cycle.
 -- Returns reply on confirmed ok, or nil + err string on any failure.
@@ -183,7 +183,7 @@ local function transaction(msg)
     return reply
 end
 
--- ── public transaction API ────────────────────────────────────────────────────
+-- public transaction API 
 
 -- Returns balance (number) or nil, errString
 function bank.getBalance(player)

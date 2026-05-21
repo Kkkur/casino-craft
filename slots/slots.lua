@@ -55,14 +55,14 @@ local function getPlayerInRange()
   return nil
 end
 
--- ── feedback ─────────────────────────────────────────────────────────────────
+-- feedback 
 
 local function setFeedback(msg, color)
   feedback      = { msg = msg, color = color }
   feedbackTimer = os.startTimer(2.5)
 end
 
--- ── draw utils ───────────────────────────────────────────────────────────────
+-- draw utils 
 
 local function reg(label, x1, y1, x2, y2)
   buttons[label] = { x1=x1, y1=y1, x2=x2, y2=y2 }
@@ -97,7 +97,7 @@ local function drawBtn(label, x, y, w, bg, fg)
   reg(label, x, y, x + w - 1, y)
 end
 
--- ── header ───────────────────────────────────────────────────────────────────
+-- header 
 
 local function drawHeader()
   fill(1, 1, W, colors.gray)
@@ -106,7 +106,7 @@ local function drawHeader()
   writeAt(tx, 1, title, colors.yellow, colors.gray)
 end
 
--- ── credits bar ──────────────────────────────────────────────────────────────
+-- credits bar 
 
 local function drawCredits(player)
   fill(1, 2, PANEL_W, colors.black)
@@ -127,7 +127,7 @@ local function drawCredits(player)
   writeAt(PANEL_W - #totStr, 3, totStr, colors.green)
 end
 
--- ── reels ────────────────────────────────────────────────────────────────────
+-- reels 
 -- rows 5-9: reel display (5 rows, centre row = payline at row 7)
 
 local REEL_TOP  = 5
@@ -168,7 +168,7 @@ local function drawReels(results, spinning_mask)
   end
 end
 
--- ── feedback / message ───────────────────────────────────────────────────────
+-- feedback / message 
 
 local function drawFeedback()
   fill(1, 11, PANEL_W, colors.black)
@@ -180,7 +180,7 @@ local function drawFeedback()
   end
 end
 
--- ── bet controls ─────────────────────────────────────────────────────────────
+-- bet controls 
 
 local function drawBetControls()
   fill(1, 12, PANEL_W, colors.black)
@@ -206,14 +206,14 @@ local function drawBetControls()
   end
 end
 
--- ── spin button ──────────────────────────────────────────────────────────────
+-- spin button 
 
 local function drawSpinButton(enabled)
   local bg = enabled and colors.green or colors.gray
   drawBtn("SPIN", 1, H, PANEL_W, bg, colors.white)
 end
 
--- ── paytable ─────────────────────────────────────────────────────────────────
+-- paytable 
 
 local PAY_ROWS = {
   { syms = "***", label = "RARE x3", mult = "x50 JACKPOT", col = colors.yellow },
@@ -247,7 +247,7 @@ local function drawPaytable()
   end
 end
 
--- ── full redraw ───────────────────────────────────────────────────────────────
+-- full redraw 
 
 local function redraw(player)
   monitor.clear()
@@ -264,7 +264,7 @@ local function redraw(player)
   drawPaytable()
 end
 
--- ── spin logic ───────────────────────────────────────────────────────────────
+-- spin logic 
 
 local function doSpin(player)
   if spinning then return end
@@ -333,7 +333,7 @@ local function doSpin(player)
   redraw(player)
 end
 
--- ── input ─────────────────────────────────────────────────────────────────────
+-- input 
 
 local function handleTouch(x, y, player)
   for label, b in pairs(buttons) do
@@ -355,7 +355,7 @@ local function handleTouch(x, y, player)
   end
 end
 
--- ── main loop ─────────────────────────────────────────────────────────────────
+-- main loop 
 
 local lastPlayer = nil
 local pollTimer  = os.startTimer(1)

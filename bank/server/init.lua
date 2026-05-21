@@ -10,7 +10,7 @@ local rednetHandler = dofile("/bank/server/rednet.lua")
 local monitorMod    = dofile("/bank/server/monitor.lua")
 local cliMod        = dofile("/bank/server/cli.lua")
 
--- ── load config ───────────────────────────────────────────────────────────────
+-- load config 
 
 local CONFIG_FILE = "bank_config.json"
 
@@ -29,7 +29,7 @@ end
 
 local cfg = loadConfig()
 
--- ── validate required config fields ──────────────────────────────────────────
+-- validate required config fields 
 
 local function needCfg(key)
     if not cfg[key] then
@@ -45,7 +45,7 @@ local token             = cfg.token
 local whitelist         = cfg.whitelist or {}
 local coinItem          = cfg.coinItem or "createdeco:brass_coin"
 
--- ── init subsystems ───────────────────────────────────────────────────────────
+-- init subsystems 
 
 logger.info("Initialising vault: " .. vaultPeripheral)
 vault.init(vaultPeripheral, logger)
@@ -70,7 +70,7 @@ cliMod.init(rednetHandler, vault, profiles, ledger, logger)
 
 logger.info("Ready.")
 
--- ── parallel runners ──────────────────────────────────────────────────────────
+-- parallel runners 
 
 local function runMonitor()
     if not monitorPeripheral then

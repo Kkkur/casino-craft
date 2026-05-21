@@ -31,7 +31,7 @@ function monitor.init(peripheralName, logger)
     if _log then _log.info("Monitor init: " .. peripheralName .. " size=" .. _W .. "x" .. _H) end
 end
 
--- ── draw primitives ───────────────────────────────────────────────────────────
+-- draw primitives 
 
 local function fill(y, bg)
     _mon.setCursorPos(1, y)
@@ -73,14 +73,14 @@ local function drawBtn(label, x, y, w, bg, fg)
     regBtn(label, x, y, x + w - 1, y)
 end
 
--- ── header ────────────────────────────────────────────────────────────────────
+-- header 
 
 local function drawHeader()
     fill(1, colours.grey)
     centered("\4 BANK SERVER \4", 1, colours.white, colours.grey)
 end
 
--- ── tab bar ───────────────────────────────────────────────────────────────────
+-- tab bar 
 
 local function drawTabs()
     fill(2, colours.black)
@@ -93,7 +93,7 @@ local function drawTabs()
     drawBtn("SECURITY", half + 1, 2, _W - half, sBg, sFg)
 end
 
--- ── ledger tab ────────────────────────────────────────────────────────────────
+-- ledger tab 
 
 local function drawLedgerTab()
     local lines = ledger.tail(_H - 4)
@@ -138,7 +138,7 @@ local function drawLedgerTab()
     end
 end
 
--- ── security tab ──────────────────────────────────────────────────────────────
+-- security tab 
 
 local function drawSecurityTab()
     local alerts = rednetHandler.getAlerts()
@@ -168,7 +168,7 @@ local function drawSecurityTab()
     for y = row, _H - 1 do fill(y, colours.black) end
 end
 
--- ── status bar ────────────────────────────────────────────────────────────────
+-- status bar 
 
 local _vaultMod = nil
 local function getVaultMod()
@@ -190,7 +190,7 @@ local function drawStatusBar()
     writeAt(_W - #vStr, _H, vStr,  colours.lime,  colours.grey)
 end
 
--- ── full redraw ───────────────────────────────────────────────────────────────
+-- full redraw 
 
 local function redraw()
     _mon.clear()
@@ -203,7 +203,7 @@ local function redraw()
     drawStatusBar()
 end
 
--- ── touch handler ─────────────────────────────────────────────────────────────
+-- touch handler 
 
 local function handleTouch(x, y)
     for label, b in pairs(_buttons) do
@@ -224,7 +224,7 @@ local function handleTouch(x, y)
     end
 end
 
--- ── run loop ──────────────────────────────────────────────────────────────────
+-- run loop 
 
 function monitor.run()
     if not _mon then error("monitor: call monitor.init() first") end

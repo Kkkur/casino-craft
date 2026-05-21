@@ -480,7 +480,7 @@ if not machineType then return end
 
 if not openModem() then return end
 
--- ── server ID (first question for all non-server machines) ───────────────────
+-- server ID (first question for all non-server machines) 
 
 if machineType.id ~= "server" then
     term.setTextColor(colours.cyan)

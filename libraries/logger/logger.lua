@@ -13,18 +13,18 @@
 
 local logger = {}
 
--- ── config ────────────────────────────────────────────────────────────────────
+-- config 
 
 local MAX_OLD_LOGS = 5
 
--- ── state ─────────────────────────────────────────────────────────────────────
+-- state 
 
 local _logFile   = nil   -- path to current "latest" log file
 local _logDir    = nil
 local _tag       = nil   -- optional [TAG] prefix, e.g. "server", "atm"
 local _debugMode = false -- if false, debug lines are written to file but not printed
 
--- ── internal helpers ──────────────────────────────────────────────────────────
+-- internal helpers 
 
 local function ensureDir(dir)
     if not fs.exists(dir) then
@@ -86,7 +86,7 @@ local LEVEL_COLORS = {
     NET   = colours.cyan,
 }
 
--- ── public API ────────────────────────────────────────────────────────────────
+-- public API 
 
 --- Call once at startup.
 -- @param tag     short string like "server", "atm", "baltop" — shown in every line
