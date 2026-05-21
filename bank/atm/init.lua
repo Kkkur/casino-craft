@@ -1,6 +1,6 @@
 -- bank/atm/init.lua
 
-local Logger = dofile("libraries/logger/Logger.lua")
+local Logger = dofile("libraries/logger/logger.lua")
 Logger.init("atm", "bank/atm/logs")
 
 local ui   = dofile("bank/atm/ui.lua")
