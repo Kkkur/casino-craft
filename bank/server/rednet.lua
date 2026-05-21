@@ -185,6 +185,7 @@ end
 
 function rednetHandler.run()
     peripheral.find("modem", rednet.open)
+    pcall(rednet.unhost, PROTOCOL)
     rednet.host(PROTOCOL, HOSTNAME)
     print("[rednet] Listening as '" .. HOSTNAME .. "' on '" .. PROTOCOL .. "'")
     print("[rednet] Computer ID: " .. os.getComputerID())
