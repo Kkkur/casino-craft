@@ -19,10 +19,11 @@ local TX_TIMEOUT    = 5   -- seconds to wait for transaction confirmation
 local _token      = nil
 local _protocol   = PROTOCOL
 local _hostname   = HOSTNAME
+local _serverID   = nil   -- explicit computer ID from config, preferred over lookup
 local _pingTimeout  = PING_TIMEOUT
 local _txTimeout    = TX_TIMEOUT
 local _computerID = os.getComputerID()
-local _log        = nil   -- optional logger injected via bank.setlogger()
+local _log        = nil   -- optional logger injected via bank.setLogger()
 local _ready      = false -- true after bank.connect() succeeds
 
 -- ── internal helpers ──────────────────────────────────────────────────────────
@@ -44,6 +45,7 @@ local function loadConfig()
     if data.token       then _token       = data.token               end
     if data.protocol    then _protocol    = data.protocol            end
     if data.hostname    then _hostname    = data.hostname            end
+    if data.serverID    then _serverID    = data.serverID            end
     if data.bankTimeout then _pingTimeout = data.bankTimeout
                              _txTimeout  = data.bankTimeout + 2      end
 end
@@ -58,9 +60,10 @@ local function checksum(action, amount, ts)
     return h
 end
 
--- resolve server ID, opening modem if needed. Returns id or nil.
+-- resolve server ID: prefer explicit serverID from config, fall back to lookup
 local function resolveServer()
     peripheral.find("modem", rednet.open)
+    if _serverID then return _serverID end
     local id = rednet.lookup(_protocol, _hostname)
     if not id then
         log("warn", "Cannot resolve server '" .. _hostname .. "' on '" .. _protocol .. "'")
@@ -94,7 +97,7 @@ end
 -- ── public API ─────────────────────────────────────────────────────────────────
 
 -- Inject a logger (same interface as libraries/logger/logger.lua)
-function bank.setlogger(logger)
+function bank.setLogger(logger)
     _log = logger
 end
 

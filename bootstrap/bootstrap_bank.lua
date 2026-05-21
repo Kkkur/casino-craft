@@ -477,6 +477,24 @@ if not machineType then return end
 
 if not openModem() then return end
 
+-- ── server ID (first question for all non-server machines) ───────────────────
+
+if machineType.id ~= "server" then
+    term.setTextColor(colours.cyan)
+    print("\nBank Server:")
+    term.setTextColor(colours.white)
+    printInfo("This computer's ID: " .. os.getComputerID())
+    printInfo("Enter the computer ID of the bank server.")
+    printInfo("You can find it by running: id   in the server CLI.")
+    local serverID = tonumber(prompt("Bank server computer ID", savedCfg.serverID))
+    if not serverID then
+        printErr("Server ID is required. Fix and re-run.")
+        return
+    end
+    savedCfg.serverID = serverID
+    printOk("Server ID set to: " .. serverID)
+end
+
 local periphCfg = detectPeripherals(machineType, savedCfg)
 if not periphCfg then
     printErr("Required peripheral(s) missing. Fix hardware and re-run.")
