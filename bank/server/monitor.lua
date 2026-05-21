@@ -4,11 +4,14 @@ local monitor = {}
 
 local ledger   = dofile("/bank/server/ledger.lua")
 local profiles = dofile("/bank/server/profiles.lua")
+local Currency = dofile("/libraries/currencylib.lua")
 
 local rednetHandler = nil
 local _log          = nil
+local _vault        = nil
 
 function monitor.setRednet(rh) rednetHandler = rh end
+function monitor.setVault(v)   _vault = v         end
 
 local _mon  = nil
 local _W    = 0
@@ -168,24 +171,14 @@ local function drawSecurityTab()
     for y = row, _H - 1 do fill(y, colours.black) end
 end
 
--- status bar 
-
-local _vaultMod = nil
-local function getVaultMod()
-    if _vaultMod then return _vaultMod end
-    local ok, v = pcall(dofile, "/bank/server/vault.lua")
-    if ok then _vaultMod = v end
-    return _vaultMod
-end
-
 local function drawStatusBar()
     fill(_H, colours.grey)
-    local top1 = profiles.top(1)
-    local coins = 0
-    local vm = getVaultMod()
-    if vm then pcall(function() coins = vm.coinCount() end) end
-    local balStr = #top1 > 0 and ("Top: " .. top1[1].player .. " " .. top1[1].balance .. "c") or "No balances"
-    local vStr   = "Vault: " .. tostring(coins) .. "c"
+    local top1  = profiles.top(1)
+    local chips = 0
+    if _vault then pcall(function() chips = _vault.coinCount() end) end
+    local spurs   = Currency.chipsToSpurs(chips)
+    local vStr    = "Vault: " .. chips .. "c | " .. Currency.format(spurs, 2)
+    local balStr  = #top1 > 0 and ("Top: " .. top1[1].player .. " " .. top1[1].balance .. "c") or "No balances"
     writeAt(2,          _H, balStr, colours.white, colours.grey)
     writeAt(_W - #vStr, _H, vStr,  colours.lime,  colours.grey)
 end

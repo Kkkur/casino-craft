@@ -52,6 +52,7 @@ vault.init(vaultPeripheral, logger)
 
 logger.info("Initialising security...")
 monitorMod.setRednet(rednetHandler)
+monitorMod.setVault(vault)
 rednetHandler.init(token, whitelist, logger, vault)
 
 logger.info("Startup reconciliation...")
