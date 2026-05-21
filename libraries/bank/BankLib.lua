@@ -22,7 +22,7 @@ local _hostname   = HOSTNAME
 local _pingTimeout  = PING_TIMEOUT
 local _txTimeout    = TX_TIMEOUT
 local _computerID = os.getComputerID()
-local _log        = nil   -- optional logger injected via bank.setLogger()
+local _log        = nil   -- optional logger injected via bank.setlogger()
 local _ready      = false -- true after bank.connect() succeeds
 
 -- ── internal helpers ──────────────────────────────────────────────────────────
@@ -94,7 +94,7 @@ end
 -- ── public API ─────────────────────────────────────────────────────────────────
 
 -- Inject a logger (same interface as libraries/logger/logger.lua)
-function bank.setLogger(logger)
+function bank.setlogger(logger)
     _log = logger
 end
 

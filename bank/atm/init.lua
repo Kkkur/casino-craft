@@ -5,7 +5,7 @@ logger.init("atm", "bank/atm/logs")
 
 local ui   = dofile("bank/atm/ui.lua")
 local bank = dofile("libraries/bank/BankLib.lua")
-bank.setLogger(logger)
+bank.setlogger(logger)
 
 local CONFIG_FILE = "bank_config.json"
 
