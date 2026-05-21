@@ -153,7 +153,10 @@ local function handle(senderId, msg)
             .. " amount=" .. tostring(amount))
     end
 
-    if action == "get" and player then
+    if action == "ping" then
+        return { ok = true, pong = true }
+
+    elseif action == "get" and player then
         local bal = profiles.getBalance(player)
         ledger.record(player, "get", nil, bal, bal)
         return { ok = true, balance = bal }

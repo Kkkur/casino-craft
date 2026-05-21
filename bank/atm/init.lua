@@ -5,13 +5,14 @@ logger.init("atm", "bank/atm/logs")
 
 local ui   = dofile("bank/atm/ui.lua")
 local bank = dofile("libraries/bank/BankLib.lua")
+bank.setLogger(logger)
 
 local CONFIG_FILE = "bank_config.json"
 
 local function loadConfig()
     if not fs.exists(CONFIG_FILE) then
         logger.error("Missing " .. CONFIG_FILE .. ", run bootstrap first")
-        error("atm: missing " .. CONFIG_FILE .. ", run bootstrap first")
+        error("atm: missing " .. CONFIG_FILE)
     end
     local f = fs.open(CONFIG_FILE, "r")
     if not f then error("atm: cannot open " .. CONFIG_FILE) end
@@ -51,13 +52,15 @@ local state = {
     amount      = 1,
     presets     = PRESETS,
     feedback    = nil,
+    connecting  = true,   -- shown during bank.connect()
 }
 
 local feedbackTimer = nil
 
 local function setFeedback(msg, color)
     state.feedback = { msg = msg, color = color }
-    feedbackTimer  = os.startTimer(2)
+    feedbackTimer  = os.startTimer(3)
+    ui.redraw(state)
 end
 
 local function getPlayer()
@@ -68,28 +71,21 @@ end
 
 local function countCoins(container)
     local total = 0
-    local items = container.list()
-    for _, item in pairs(items) do
-        if item.name == coinItem then
-            total = total + item.count
-        end
+    for _, item in pairs(container.list()) do
+        if item.name == coinItem then total = total + item.count end
     end
     return total
 end
 
 local function freeSpace(container)
     local used = 0
-    local items = container.list()
-    for _, item in pairs(items) do
-        used = used + item.count
-    end
+    for _, item in pairs(container.list()) do used = used + item.count end
     return (container.size() * 64) - used
 end
 
 local function moveCoins(from, toName, count)
     local moved = 0
-    local items = from.list()
-    for slot, item in pairs(items) do
+    for slot, item in pairs(from.list()) do
         if item.name == coinItem and moved < count then
             local toMove = math.min(item.count, count - moved)
             moved = moved + from.pushItems(toName, slot, toMove)
@@ -99,13 +95,40 @@ local function moveCoins(from, toName, count)
     return moved
 end
 
+-- ── connect to bank on startup ────────────────────────────────────────────────
+
+local function connectBank()
+    state.connecting = true
+    ui.redraw(state)
+    local ok, err = bank.connect()
+    state.connecting = false
+    if not ok then
+        logger.error("ATM cannot reach bank server: " .. tostring(err))
+        setFeedback("Bank offline! Retry in 10s", colours.red)
+        return false
+    end
+    logger.info("ATM connected to bank server.")
+    return true
+end
+
+-- ── refresh ───────────────────────────────────────────────────────────────────
+
 local function refreshState()
     state.barrelCount = countCoins(inputBarrel)
     state.vaultCount  = countCoins(vault)
-    local player      = getPlayer()
+    local player = getPlayer()
     if player and player ~= state.playerName then
-        state.credits  = bank.getBalance(player) or 0
-        state.playerName = player
+        -- new player: fetch balance (read-only, no ping gate needed)
+        local bal, err = bank.getBalance(player)
+        if bal then
+            state.credits    = bal
+            state.playerName = player
+        else
+            logger.warn("Could not fetch balance for " .. player .. ": " .. tostring(err))
+            state.credits    = 0
+            state.playerName = player
+            setFeedback("Bank error, try again", colours.red)
+        end
     elseif player then
         state.playerName = player
     else
@@ -114,66 +137,128 @@ local function refreshState()
     end
 end
 
+-- ── deposit ───────────────────────────────────────────────────────────────────
+--
+-- Safe order:
+--   1. Move coins barrel → vault  (physical)
+--   2. ping → bank.add()          (ledger, confirmed)
+--   3. If ledger fails, move coins back
+--
 local function deposit()
     local player = getPlayer()
     if not player then return end
+
     local space = freeSpace(vault)
     if space <= 0 then
         logger.warn("Deposit refused: vault full")
         setFeedback("Vault is full!", colours.red)
         return
     end
-    local toDeposit = math.min(state.amount, space)
-    local moved     = moveCoins(inputBarrel, vaultName, toDeposit)
-    if moved == 0 then
-        logger.warn("Deposit: no coins found in barrel for " .. player)
+
+    local toDeposit = math.min(state.amount, space, countCoins(inputBarrel))
+    if toDeposit == 0 then
         setFeedback("No coins in barrel!", colours.red)
         return
     end
-    local newBal = bank.add(player, moved)
-    if newBal then state.credits = newBal end
+
+    -- step 1: move coins physically first so the vault actually holds them
+    local moved = moveCoins(inputBarrel, vaultName, toDeposit)
+    if moved == 0 then
+        logger.warn("Deposit: no coins moved for " .. player)
+        setFeedback("No coins in barrel!", colours.red)
+        return
+    end
+
+    -- step 2: ping → ledger add → await confirmation
+    local newBal, err = bank.add(player, moved)
+    if not newBal then
+        -- ledger failed: reverse the physical move
+        logger.error("Deposit ledger FAILED for " .. player .. ": " .. tostring(err)
+            .. " — reversing " .. moved .. " coins")
+        local reversed = moveCoins(vault, inputBarrelName, moved)
+        if reversed < moved then
+            logger.error("PARTIAL REVERSAL: only " .. reversed .. "/" .. moved .. " coins returned!")
+        end
+        setFeedback("Bank error! Please retry.", colours.red)
+        return
+    end
+
+    -- step 3: confirmed
+    state.credits = newBal
     if moved < state.amount then
         logger.warn("Partial deposit: " .. player .. " +" .. moved .. " (wanted " .. state.amount .. ")")
         setFeedback("Partial: +" .. moved .. " coins", colours.orange)
     else
-        logger.info("Deposit: " .. player .. " +" .. moved .. " → balance=" .. tostring(newBal))
-        setFeedback("Deposited " .. moved .. " coins", colours.lime)
+        logger.info("Deposit: " .. player .. " +" .. moved .. " → balance=" .. newBal)
+        setFeedback("Deposited " .. moved .. " coins!", colours.lime)
     end
     refreshState()
 end
 
+-- ── withdraw ──────────────────────────────────────────────────────────────────
+--
+-- Safe order:
+--   1. ping → bank.remove()   (ledger deducted + confirmed)
+--   2. Move coins vault → barrel  (physical, only if ledger ok)
+--   3. If physical move fails, refund ledger via bank.add()
+--
 local function withdraw()
     local player = getPlayer()
     if not player then return end
+
     if state.credits < state.amount then
-        logger.warn("Withdraw refused: insufficient credits for " .. player)
         setFeedback("Insufficient credits!", colours.red)
         return
     end
     local space = freeSpace(inputBarrel)
     if space <= 0 then
-        logger.warn("Withdraw refused: barrel full for " .. player)
         setFeedback("Barrel is full!", colours.red)
         return
     end
+
     local toWithdraw = math.min(state.amount, space)
+
+    -- step 1: ledger deduction first, confirmed by server
     local newBal, err = bank.remove(player, toWithdraw)
     if not newBal then
-        logger.error("Withdraw FAILED for " .. player .. ": " .. tostring(err))
-        setFeedback(err == "insufficient" and "Insufficient credits!" or "Bank error!", colours.red)
+        logger.warn("Withdraw ledger FAILED for " .. player .. ": " .. tostring(err))
+        if err == "insufficient" then
+            setFeedback("Insufficient credits!", colours.red)
+        elseif err == "server_unreachable" or err == "no_confirmation" then
+            setFeedback("Bank offline! Please retry.", colours.red)
+        else
+            setFeedback("Bank error! Please retry.", colours.red)
+        end
         return
     end
-    moveCoins(vault, inputBarrelName, toWithdraw)
-    state.credits = newBal
-    if toWithdraw < state.amount then
-        logger.warn("Partial withdraw: " .. player .. " -" .. toWithdraw .. " (wanted " .. state.amount .. ")")
-        setFeedback("Partial: -" .. toWithdraw .. " coins", colours.orange)
-    else
-        logger.info("Withdraw: " .. player .. " -" .. toWithdraw .. " → balance=" .. tostring(newBal))
-        setFeedback("Withdrew " .. toWithdraw .. " coins", colours.lime)
+
+    -- step 2: physically dispense coins
+    local moved = moveCoins(vault, inputBarrelName, toWithdraw)
+    if moved < toWithdraw then
+        -- vault didn't have enough physical coins; refund the difference
+        local missing = toWithdraw - moved
+        logger.error("Withdraw: vault short by " .. missing .. " coins for " .. player .. " — refunding")
+        local refunded, refErr = bank.add(player, missing)
+        if refunded then
+            newBal = refunded
+            logger.info("Refund ok: " .. player .. " +" .. missing)
+        else
+            logger.error("REFUND FAILED for " .. player .. ": " .. tostring(refErr))
+        end
+        setFeedback("Vault short! Got " .. moved .. " coins.", colours.orange)
+        state.credits = newBal
+        refreshState()
+        return
     end
+
+    -- step 3: all good
+    state.credits = newBal
+    logger.info("Withdraw: " .. player .. " -" .. toWithdraw .. " → balance=" .. newBal)
+    setFeedback("Withdrew " .. toWithdraw .. " coins!", colours.lime)
     refreshState()
 end
+
+-- ── button handler ────────────────────────────────────────────────────────────
 
 local function handleButton(label)
     if label == "+" then
@@ -190,11 +275,25 @@ local function handleButton(label)
     end
 end
 
-logger.info("ATM ready. vault=" .. vaultName .. " barrel=" .. inputBarrelName)
+-- ── startup ───────────────────────────────────────────────────────────────────
+
+logger.info("ATM starting. vault=" .. vaultName .. " barrel=" .. inputBarrelName)
+
+-- connect (retries every 10s if offline)
+local bankOnline = false
+while not bankOnline do
+    bankOnline = connectBank()
+    if not bankOnline then
+        os.sleep(10)
+    end
+end
+
 refreshState()
 ui.redraw(state)
 
 local pollTimer = os.startTimer(1)
+
+-- ── main event loop ───────────────────────────────────────────────────────────
 
 while true do
     local ev, p1, p2, p3 = os.pullEvent()
