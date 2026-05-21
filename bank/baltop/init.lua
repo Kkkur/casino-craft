@@ -1,7 +1,7 @@
 -- bank/baltop/init.lua
 
-local Logger = dofile("/libraries/logger/Logger.lua")
-Logger.init("baltop", "bank/baltop/logs")
+local logger = dofile("/libraries/logger/logger.lua")
+logger.init("baltop", "bank/baltop/logs")
 
 local bank = dofile("/libraries/bank/BankLib.lua")
 
@@ -86,15 +86,15 @@ local function draw(top)
     end
 end
 
-Logger.info("Baltop ready. monitor=" .. monitorPeripheral .. " refresh=" .. refreshInterval .. "s")
+logger.info("Baltop ready. monitor=" .. monitorPeripheral .. " refresh=" .. refreshInterval .. "s")
 peripheral.find("modem", rednet.open)
 
 while true do
     local top = bank.top(H - 1)
     if not top or #top == 0 then
-        Logger.warn("top() returned empty or nil")
+        logger.warn("top() returned empty or nil")
     else
-        Logger.debug("Baltop refreshed: " .. #top .. " entries")
+        logger.debug("Baltop refreshed: " .. #top .. " entries")
     end
     draw(top)
     os.sleep(refreshInterval)

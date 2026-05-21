@@ -1,7 +1,7 @@
 -- bank/atm/init.lua
 
-local Logger = dofile("libraries/logger/logger.lua")
-Logger.init("atm", "bank/atm/logs")
+local logger = dofile("libraries/logger/logger.lua")
+logger.init("atm", "bank/atm/logs")
 
 local ui   = dofile("bank/atm/ui.lua")
 local bank = dofile("libraries/bank/BankLib.lua")
@@ -10,7 +10,7 @@ local CONFIG_FILE = "bank_config.json"
 
 local function loadConfig()
     if not fs.exists(CONFIG_FILE) then
-        Logger.error("Missing " .. CONFIG_FILE .. ", run bootstrap first")
+        logger.error("Missing " .. CONFIG_FILE .. ", run bootstrap first")
         error("atm: missing " .. CONFIG_FILE .. ", run bootstrap first")
     end
     local f = fs.open(CONFIG_FILE, "r")
@@ -119,24 +119,24 @@ local function deposit()
     if not player then return end
     local space = freeSpace(vault)
     if space <= 0 then
-        Logger.warn("Deposit refused: vault full")
+        logger.warn("Deposit refused: vault full")
         setFeedback("Vault is full!", colours.red)
         return
     end
     local toDeposit = math.min(state.amount, space)
     local moved     = moveCoins(inputBarrel, vaultName, toDeposit)
     if moved == 0 then
-        Logger.warn("Deposit: no coins found in barrel for " .. player)
+        logger.warn("Deposit: no coins found in barrel for " .. player)
         setFeedback("No coins in barrel!", colours.red)
         return
     end
     local newBal = bank.add(player, moved)
     if newBal then state.credits = newBal end
     if moved < state.amount then
-        Logger.warn("Partial deposit: " .. player .. " +" .. moved .. " (wanted " .. state.amount .. ")")
+        logger.warn("Partial deposit: " .. player .. " +" .. moved .. " (wanted " .. state.amount .. ")")
         setFeedback("Partial: +" .. moved .. " coins", colours.orange)
     else
-        Logger.info("Deposit: " .. player .. " +" .. moved .. " → balance=" .. tostring(newBal))
+        logger.info("Deposit: " .. player .. " +" .. moved .. " → balance=" .. tostring(newBal))
         setFeedback("Deposited " .. moved .. " coins", colours.lime)
     end
     refreshState()
@@ -146,30 +146,30 @@ local function withdraw()
     local player = getPlayer()
     if not player then return end
     if state.credits < state.amount then
-        Logger.warn("Withdraw refused: insufficient credits for " .. player)
+        logger.warn("Withdraw refused: insufficient credits for " .. player)
         setFeedback("Insufficient credits!", colours.red)
         return
     end
     local space = freeSpace(inputBarrel)
     if space <= 0 then
-        Logger.warn("Withdraw refused: barrel full for " .. player)
+        logger.warn("Withdraw refused: barrel full for " .. player)
         setFeedback("Barrel is full!", colours.red)
         return
     end
     local toWithdraw = math.min(state.amount, space)
     local newBal, err = bank.remove(player, toWithdraw)
     if not newBal then
-        Logger.error("Withdraw FAILED for " .. player .. ": " .. tostring(err))
+        logger.error("Withdraw FAILED for " .. player .. ": " .. tostring(err))
         setFeedback(err == "insufficient" and "Insufficient credits!" or "Bank error!", colours.red)
         return
     end
     moveCoins(vault, inputBarrelName, toWithdraw)
     state.credits = newBal
     if toWithdraw < state.amount then
-        Logger.warn("Partial withdraw: " .. player .. " -" .. toWithdraw .. " (wanted " .. state.amount .. ")")
+        logger.warn("Partial withdraw: " .. player .. " -" .. toWithdraw .. " (wanted " .. state.amount .. ")")
         setFeedback("Partial: -" .. toWithdraw .. " coins", colours.orange)
     else
-        Logger.info("Withdraw: " .. player .. " -" .. toWithdraw .. " → balance=" .. tostring(newBal))
+        logger.info("Withdraw: " .. player .. " -" .. toWithdraw .. " → balance=" .. tostring(newBal))
         setFeedback("Withdrew " .. toWithdraw .. " coins", colours.lime)
     end
     refreshState()
@@ -190,7 +190,7 @@ local function handleButton(label)
     end
 end
 
-Logger.info("ATM ready. vault=" .. vaultName .. " barrel=" .. inputBarrelName)
+logger.info("ATM ready. vault=" .. vaultName .. " barrel=" .. inputBarrelName)
 refreshState()
 ui.redraw(state)
 

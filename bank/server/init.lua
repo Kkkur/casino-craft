@@ -1,7 +1,7 @@
 -- bank/server/init.lua
 
-local Logger        = dofile("/libraries/logger/Logger.lua")
-Logger.init("server", "bank/server/logs")
+local logger        = dofile("/libraries/logger/logger.lua")
+logger.init("server", "bank/server/logs")
 
 local vault         = dofile("/bank/server/vault.lua")
 local ledger        = dofile("/bank/server/ledger.lua")
@@ -15,14 +15,14 @@ local CONFIG_FILE = "bank_config.json"
 
 local function loadConfig()
     if not fs.exists(CONFIG_FILE) then
-        Logger.error("Missing " .. CONFIG_FILE .. ", run bootstrap first")
+        logger.error("Missing " .. CONFIG_FILE .. ", run bootstrap first")
         error("missing config")
     end
     local f = fs.open(CONFIG_FILE, "r")
-    if not f then Logger.error("Cannot open " .. CONFIG_FILE) error("cannot open config") end
+    if not f then logger.error("Cannot open " .. CONFIG_FILE) error("cannot open config") end
     local data = textutils.unserialiseJSON(f.readAll())
     f.close()
-    if not data then Logger.error("Corrupt " .. CONFIG_FILE) error("corrupt config") end
+    if not data then logger.error("Corrupt " .. CONFIG_FILE) error("corrupt config") end
     return data
 end
 
@@ -32,7 +32,7 @@ local cfg = loadConfig()
 
 local function needCfg(key)
     if not cfg[key] then
-        Logger.error("Missing config key '" .. key .. "'")
+        logger.error("Missing config key '" .. key .. "'")
         error("missing config key: " .. key)
     end
     return cfg[key]
@@ -46,34 +46,34 @@ local coinItem          = cfg.coinItem or "createdeco:brass_coin"
 
 -- ── init subsystems ───────────────────────────────────────────────────────────
 
-Logger.info("Initialising vault: " .. vaultPeripheral)
-vault.init(vaultPeripheral, Logger)
+logger.info("Initialising vault: " .. vaultPeripheral)
+vault.init(vaultPeripheral, logger)
 
-Logger.info("Initialising security...")
+logger.info("Initialising security...")
 monitorMod.setRednet(rednetHandler)
-rednetHandler.init(token, whitelist, Logger)
+rednetHandler.init(token, whitelist, logger)
 
-Logger.info("Startup reconciliation...")
+logger.info("Startup reconciliation...")
 local sum            = profiles.sumAll()
 local ok, exp, act   = vault.reconcile(sum, coinItem)
 if not ok then
     ledger.recordReconcile(exp, act)
-    Logger.warn("Reconciliation MISMATCH on startup! expected=" .. exp .. " actual=" .. act)
+    logger.warn("Reconciliation MISMATCH on startup! expected=" .. exp .. " actual=" .. act)
 else
-    Logger.info("Vault OK. Coins=" .. act)
+    logger.info("Vault OK. Coins=" .. act)
 end
 
 ledger.record("SERVER", "startup", nil, nil, nil)
-Logger.info("Ready.")
+logger.info("Ready.")
 
 -- ── parallel runners ──────────────────────────────────────────────────────────
 
 local function runMonitor()
     if not monitorPeripheral then
-        Logger.warn("No monitor in config, skipping monitor.")
+        logger.warn("No monitor in config, skipping monitor.")
         while true do os.sleep(9999) end
     end
-    monitorMod.init(monitorPeripheral, Logger)
+    monitorMod.init(monitorPeripheral, logger)
     monitorMod.run()
 end
 

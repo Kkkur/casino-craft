@@ -1,17 +1,17 @@
--- libraries/logger/Logger.lua
+-- libraries/logger/logger.lua
 -- Public logger for the Casino system.
 -- Prints coloured lines to terminal (Minecraft-log style) and writes to disk.
 --
 -- Usage:
---   local Logger = dofile("/libraries/logger/Logger.lua")
---   Logger.init("bank/server")          -- sets log dir, rotates old logs
---   Logger.info("Server started")
---   Logger.warn("Low vault balance")
---   Logger.error("Vault peripheral missing")
---   Logger.debug("Packet received from ID 4")
---   Logger.net("RECV", senderId, protocol, msgType)
+--   local logger = dofile("/libraries/logger/logger.lua")
+--   logger.init("bank/server")          -- sets log dir, rotates old logs
+--   logger.info("Server started")
+--   logger.warn("Low vault balance")
+--   logger.error("Vault peripheral missing")
+--   logger.debug("Packet received from ID 4")
+--   logger.net("RECV", senderId, protocol, msgType)
 
-local Logger = {}
+local logger = {}
 
 -- ── config ────────────────────────────────────────────────────────────────────
 
@@ -92,7 +92,7 @@ local LEVEL_COLORS = {
 -- @param tag     short string like "server", "atm", "baltop" — shown in every line
 -- @param logDir  directory to store log files, e.g. "bank/server/logs"
 -- @param debug   boolean, if true debug lines are also printed to terminal
-function Logger.init(tag, logDir, debug)
+function logger.init(tag, logDir, debug)
     _tag       = tag or "?"
     _debugMode = debug or false
 
@@ -112,11 +112,11 @@ function Logger.init(tag, logDir, debug)
         end
     end
 
-    Logger.info("Logger initialised" .. (logDir and (" → " .. logDir) or " (no file)"))
+    logger.info("logger initialised" .. (logDir and (" → " .. logDir) or " (no file)"))
 end
 
 --- Core log function. level = "INFO"|"WARN"|"ERROR"|"DEBUG"|"NET"
-function Logger.log(level, msg)
+function logger.log(level, msg)
     local tag    = _tag and ("[" .. _tag .. "] ") or ""
     local line   = string.format("[%s] [%s] %s%s", timestamp(), level, tag, tostring(msg))
 
@@ -132,23 +132,23 @@ function Logger.log(level, msg)
     term.setTextColor(colours.white)
 end
 
-function Logger.info(msg)  Logger.log("INFO",  msg) end
-function Logger.warn(msg)  Logger.log("WARN",  msg) end
-function Logger.error(msg) Logger.log("ERROR", msg) end
-function Logger.debug(msg) Logger.log("DEBUG", msg) end
+function logger.info(msg)  logger.log("INFO",  msg) end
+function logger.warn(msg)  logger.log("WARN",  msg) end
+function logger.error(msg) logger.log("ERROR", msg) end
+function logger.debug(msg) logger.log("DEBUG", msg) end
 
 --- Log a network event.
 -- direction = "RECV" or "SEND"
-function Logger.net(direction, peerId, protocol, msgType)
+function logger.net(direction, peerId, protocol, msgType)
     local arrow = (direction == "RECV") and "<-" or "->"
-    Logger.log("NET", string.format(
+    logger.log("NET", string.format(
         "NET %s ID %s [%s] type=%s",
         arrow, tostring(peerId), tostring(protocol), tostring(msgType)
     ))
 end
 
 --- Read last `limit` lines from the current log file. Returns list, newest first.
-function Logger.tail(limit)
+function logger.tail(limit)
     limit = limit or 20
     if not _logFile or not fs.exists(_logFile) then return {} end
     local f = fs.open(_logFile, "r")
@@ -168,8 +168,8 @@ function Logger.tail(limit)
 end
 
 --- Enable or disable debug printing at runtime.
-function Logger.setDebug(enabled)
+function logger.setDebug(enabled)
     _debugMode = enabled
 end
 
-return Logger
+return logger

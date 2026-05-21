@@ -4,7 +4,7 @@
 local Data        = dofile("dependencies/data.lua")
 local Net         = dofile("dependencies/rednet_manager.lua")
 local UI          = dofile("dependencies/ui.lua")
-local Logger      = dofile("dependencies/logger.lua")
+local logger      = dofile("dependencies/logger.lua")
 local Leaderboard = dofile("dependencies/leaderboards/leaderboard.lua")
 local Currency    = dofile("dependencies/currency.lua")
 
@@ -20,12 +20,12 @@ local function loadChipValue()
             f.close()
             if n and n > 0 then
                 CHIP_VALUE_SPURS = n
-                Logger.info("Chip value loaded: 1 chip = " .. n .. " spurs")
+                logger.info("Chip value loaded: 1 chip = " .. n .. " spurs")
                 return
             end
         end
     end
-    Logger.info("Chip value: default 1 chip = " .. CHIP_VALUE_SPURS .. " spurs")
+    logger.info("Chip value: default 1 chip = " .. CHIP_VALUE_SPURS .. " spurs")
 end
 
 -- RESERVE BARREL
@@ -42,13 +42,13 @@ local function loadReserveConfig()
                 line = line:match("^%s*(.-)%s*$")  -- trim whitespace
                 if line ~= "" then
                     RESERVE_NAME = line
-                    Logger.info("Reserve configured: " .. RESERVE_NAME)
+                    logger.info("Reserve configured: " .. RESERVE_NAME)
                     return
                 end
             end
         end
     end
-    Logger.warn("reserve.txt not found or empty — reserve balance unavailable")
+    logger.warn("reserve.txt not found or empty — reserve balance unavailable")
 end
 
 local function readReserve()
@@ -83,10 +83,10 @@ end
 local function updateReserve()
     local chips, spurs, err = readReserve()
     if err then
-        Logger.warn("Reserve: " .. err)
+        logger.warn("Reserve: " .. err)
         Data.setGlobalStat("reserveSpurs", 0)
     else
-        Logger.info("Reserve: " .. chips .. " chips = " .. Currency.format(spurs))
+        logger.info("Reserve: " .. chips .. " chips = " .. Currency.format(spurs))
         Data.setGlobalStat("reserveSpurs", spurs)
     end
 end
@@ -111,23 +111,23 @@ local FS_FILES = {
 
 local function handleFileRequest(senderId, msg)
     if type(msg) ~= "table" then
-        Logger.warn("FS: non-table message from ID " .. senderId)
+        logger.warn("FS: non-table message from ID " .. senderId)
         return
     end
 
-    Logger.logNet(senderId, FS_PROTOCOL, msg)
+    logger.logNet(senderId, FS_PROTOCOL, msg)
 
     if msg.type == "ping" then
         rednet.send(senderId, { type = "pong" }, FS_PROTOCOL)
-        Logger.info("FS: ping from ID " .. senderId .. " -> pong sent")
+        logger.info("FS: ping from ID " .. senderId .. " -> pong sent")
 
     elseif msg.type == "list" then
         rednet.send(senderId, { type = "list_response", files = FS_FILES }, FS_PROTOCOL)
-        Logger.info("FS: sent file list (" .. #FS_FILES .. " files) to ID " .. senderId)
+        logger.info("FS: sent file list (" .. #FS_FILES .. " files) to ID " .. senderId)
 
     elseif (msg.type == "get" or msg.type == "request") and type(msg.file) == "string" then
         local filename = msg.file:gsub("[/\\]", ""):gsub("%.%.", "")
-        Logger.info("FS: file request '" .. filename .. "' from ID " .. senderId)
+        logger.info("FS: file request '" .. filename .. "' from ID " .. senderId)
 
         if fs.exists(filename) then
             local f = fs.open(filename, "r")
@@ -139,7 +139,7 @@ local function handleFileRequest(senderId, msg)
                 content = content,
                 ok      = true,
             }, FS_PROTOCOL)
-            Logger.info("FS: sent '" .. filename .. "' (" .. #content .. " bytes) to ID " .. senderId)
+            logger.info("FS: sent '" .. filename .. "' (" .. #content .. " bytes) to ID " .. senderId)
         else
             rednet.send(senderId, {
                 type = "file_response",
@@ -147,38 +147,38 @@ local function handleFileRequest(senderId, msg)
                 ok   = false,
                 err  = "File not found: " .. filename,
             }, FS_PROTOCOL)
-            Logger.warn("FS: file not found '" .. filename .. "' (requested by ID " .. senderId .. ")")
+            logger.warn("FS: file not found '" .. filename .. "' (requested by ID " .. senderId .. ")")
         end
     else
-        Logger.warn("FS: unknown message type '" .. tostring(msg.type) .. "' from ID " .. senderId)
+        logger.warn("FS: unknown message type '" .. tostring(msg.type) .. "' from ID " .. senderId)
     end
 end
 
 -- INIT
 
-Logger.init()
-Logger.info("Casino Manager starting up...")
+logger.init()
+logger.info("Casino Manager starting up...")
 
 loadChipValue()
 loadReserveConfig()
 
 Data.load()
-Logger.info("Data loaded.")
+logger.info("Data loaded.")
 Leaderboard.load()
-Logger.info("Leaderboard loaded.")
+logger.info("Leaderboard loaded.")
 
 if not Net.open() then
-    Logger.error("No wireless modem found!")
+    logger.error("No wireless modem found!")
     error("No wireless modem found! Attach one and restart.")
 end
-Logger.info("Modem online. Manager ID: " .. os.getComputerID())
+logger.info("Modem online. Manager ID: " .. os.getComputerID())
 
 local ok, uiErr = pcall(UI.init)
 if not ok then
-    Logger.warn("Monitor init failed: " .. tostring(uiErr))
-    Logger.warn("Continuing without monitor display.")
+    logger.warn("Monitor init failed: " .. tostring(uiErr))
+    logger.warn("Continuing without monitor display.")
 else
-    Logger.info("Monitor initialised.")
+    logger.info("Monitor initialised.")
 end
 
 updateReserve()
@@ -201,11 +201,11 @@ local function pingAllMachines()
     local ids = {}
     for _, m in ipairs(machines) do table.insert(ids, m.id) end
     if #ids == 0 then
-        Logger.debug("Ping: no machines registered, skipping.")
+        logger.debug("Ping: no machines registered, skipping.")
         return
     end
 
-    Logger.info("Pinging " .. #ids .. " machine(s)...")
+    logger.info("Pinging " .. #ids .. " machine(s)...")
     UI.setStatus("Pinging " .. #ids .. " machine(s)...", 3)
     local results = Net.pingAll(ids, 3)
     local alive = 0
@@ -213,18 +213,18 @@ local function pingAllMachines()
         Data.setConfig(id, "online", isAlive)
         if isAlive then
             alive = alive + 1
-            Logger.debug("Ping: ID " .. id .. " online")
+            logger.debug("Ping: ID " .. id .. " online")
         else
-            Logger.debug("Ping: ID " .. id .. " no response")
+            logger.debug("Ping: ID " .. id .. " no response")
         end
     end
     Data.pruneOffline(OFFLINE_THRESH)
-    Logger.info("Ping done: " .. alive .. "/" .. #ids .. " online.")
+    logger.info("Ping done: " .. alive .. "/" .. #ids .. " online.")
     UI.setStatus("Ping done. " .. alive .. "/" .. #ids .. " online.", 3)
 end
 
 local function sendConfigToMachine(machine)
-    Logger.info("Sending config to " .. machine.label .. " (ID " .. machine.id .. ")")
+    logger.info("Sending config to " .. machine.label .. " (ID " .. machine.id .. ")")
     Net.sendConfig(machine.id, {
         winPercent = machine.winPercent,
         enabled    = machine.enabled,
@@ -277,7 +277,7 @@ local function handleBlackjackResult(senderId, msg)
     else
         profitStr = "-" .. Currency.format(-profitSpurs)
     end
-    Logger.info("BJ result from ID " .. senderId
+    logger.info("BJ result from ID " .. senderId
         .. ": player=" .. player
         .. " result=" .. result
         .. " bet=" .. betChips .. " chips (" .. Currency.format(betSpurs) .. ")"
@@ -306,7 +306,7 @@ end
 
 local function handleSlotsResult(senderId, msg)
     local p = msg.payload or {}
-    Logger.info("Slots result from ID " .. senderId
+    logger.info("Slots result from ID " .. senderId
         .. " in=" .. tostring(p.amountIn) .. " out=" .. tostring(p.amountOut))
     Data.recordPlay(senderId, p.amountIn or 0, p.amountOut or 0, p.won or false)
     Data.setConfig(senderId, "online",   true)
@@ -319,25 +319,25 @@ end
 
 local function handleRouletteResult(senderId, msg)
     -- TODO: implement roulette result recording
-    Logger.info("Roulette result from ID " .. senderId .. " (not yet implemented)")
+    logger.info("Roulette result from ID " .. senderId .. " (not yet implemented)")
     onPlayResult()
 end
 
 local function handlePokerResult(senderId, msg)
     -- TODO: implement poker result recording
-    Logger.info("Poker result from ID " .. senderId .. " (not yet implemented)")
+    logger.info("Poker result from ID " .. senderId .. " (not yet implemented)")
     onPlayResult()
 end
 
 local function handleDiceResult(senderId, msg)
     -- TODO: implement dice result recording
-    Logger.info("Dice result from ID " .. senderId .. " (not yet implemented)")
+    logger.info("Dice result from ID " .. senderId .. " (not yet implemented)")
     onPlayResult()
 end
 
 local function handleCrashResult(senderId, msg)
     -- TODO: implement crash result recording
-    Logger.info("Crash result from ID " .. senderId .. " (not yet implemented)")
+    logger.info("Crash result from ID " .. senderId .. " (not yet implemented)")
     onPlayResult()
 end
 
@@ -345,14 +345,14 @@ end
 
 local function handleNetMessage(senderId, msg)
     if type(msg) ~= "table" then
-        Logger.warn("NET: non-table message from ID " .. senderId)
+        logger.warn("NET: non-table message from ID " .. senderId)
         return
     end
 
-    Logger.logNet(senderId, Net.PROTOCOL, msg)
+    logger.logNet(senderId, Net.PROTOCOL, msg)
 
     if msg.type == "register" then
-        Logger.info("NET: register from ID " .. senderId
+        logger.info("NET: register from ID " .. senderId
             .. " game=" .. tostring(msg.game)
             .. " label=" .. tostring(msg.label))
 
@@ -370,8 +370,8 @@ local function handleNetMessage(senderId, msg)
             enabled      = m.enabled,
         }
         rednet.send(senderId, reply, Net.PROTOCOL)
-        Logger.logSend(senderId, Net.PROTOCOL, reply)
-        Logger.info("NET: config sent to " .. m.label .. " (ID " .. senderId .. ")")
+        logger.logSend(senderId, Net.PROTOCOL, reply)
+        logger.info("NET: config sent to " .. m.label .. " (ID " .. senderId .. ")")
         UI.setStatus("Registered: " .. m.label .. " (ID " .. senderId .. ")", 5)
 
     elseif msg.type == "hand_result" then
@@ -393,7 +393,7 @@ local function handleNetMessage(senderId, msg)
         handleCrashResult(senderId, msg)
 
     elseif msg.type == Net.EVT.PONG then
-        Logger.debug("NET: pong from ID " .. senderId)
+        logger.debug("NET: pong from ID " .. senderId)
         Data.setConfig(senderId, "online",   true)
         Data.setConfig(senderId, "lastSeen", os.time())
 
@@ -402,13 +402,13 @@ local function handleNetMessage(senderId, msg)
 
     elseif msg.type == Net.EVT.STATS then
         local p = msg.payload or {}
-        Logger.debug("NET: stats update from ID " .. senderId)
+        logger.debug("NET: stats update from ID " .. senderId)
         if p.totalIn    ~= nil then Data.setConfig(senderId, "totalIn",    p.totalIn)    end
         if p.totalOut   ~= nil then Data.setConfig(senderId, "totalOut",   p.totalOut)   end
         if p.totalPlays ~= nil then Data.setConfig(senderId, "totalPlays", p.totalPlays) end
 
     elseif msg.type == Net.EVT.REGISTER then
-        Logger.info("NET: legacy register from ID " .. senderId)
+        logger.info("NET: legacy register from ID " .. senderId)
         local info = msg.payload or {}
         local m = Data.registerMachine(senderId, {
             label      = info.label,
@@ -425,11 +425,11 @@ local function handleNetMessage(senderId, msg)
         local m     = Data.getMachine(senderId)
         local label = m and m.label or ("ID " .. senderId)
         local errMsg = tostring((msg.payload or {}).msg)
-        Logger.error("NET: error from " .. label .. ": " .. errMsg)
+        logger.error("NET: error from " .. label .. ": " .. errMsg)
         UI.setStatus("ERR from " .. label .. ": " .. errMsg, 5)
 
     else
-        Logger.warn("NET: unknown message type '" .. tostring(msg.type)
+        logger.warn("NET: unknown message type '" .. tostring(msg.type)
             .. "' from ID " .. senderId)
     end
 end
@@ -453,16 +453,16 @@ local function handleKey(key)
             local idStr = termPrompt("Machine rednet ID to register", "")
             local id = tonumber(idStr)
             if id then
-                Logger.info("Manually registering machine ID " .. id)
+                logger.info("Manually registering machine ID " .. id)
                 local m = Data.registerMachine(id, { label = "Machine #" .. id })
                 Net.sendConfig(id, { winPercent = m.winPercent, enabled = m.enabled })
                 UI.setStatus("Registered machine ID " .. id, 4)
             else
-                Logger.warn("Manual register: invalid ID entered")
+                logger.warn("Manual register: invalid ID entered")
                 UI.setStatus("Invalid ID.", 3)
             end
         elseif key == keys.q then
-            Logger.info("Quit key pressed. Shutting down.")
+            logger.info("Quit key pressed. Shutting down.")
             return "quit"
         end
 
@@ -477,18 +477,18 @@ local function handleKey(key)
                 local newVal = not m.enabled
                 Data.setConfig(m.id, "enabled", newVal)
                 Net.send(m.id, newVal and Net.MSG.ENABLE or Net.MSG.DISABLE, {})
-                Logger.info((newVal and "Enabled" or "Disabled") .. " machine " .. m.label)
+                logger.info((newVal and "Enabled" or "Disabled") .. " machine " .. m.label)
                 UI.setStatus((newVal and "Enabled: " or "Disabled: ") .. m.label, 3)
             end
         elseif key == keys.p then
             local m = UI.getSelectedMachine()
             if m then
-                Logger.info("Manual ping: " .. m.label .. " (ID " .. m.id .. ")")
+                logger.info("Manual ping: " .. m.label .. " (ID " .. m.id .. ")")
                 UI.setStatus("Pinging " .. m.label .. "...", 2)
                 refreshUI()
                 local alive = Net.ping(m.id, 3)
                 Data.setConfig(m.id, "online", alive)
-                Logger.info("Ping result: " .. m.label .. " -> " .. (alive and "online" or "no response"))
+                logger.info("Ping result: " .. m.label .. " -> " .. (alive and "online" or "no response"))
                 UI.setStatus(m.label .. (alive and " is online" or " not responding"), 4)
             end
         elseif key == keys.r then
@@ -497,7 +497,7 @@ local function handleKey(key)
                 term.setCursorPos(1, 19)
                 local confirm = termPrompt("Reset stats for " .. m.label .. "? (yes/no)", "no")
                 if confirm == "yes" then
-                    Logger.info("Stats reset for " .. m.label .. " (ID " .. m.id .. ")")
+                    logger.info("Stats reset for " .. m.label .. " (ID " .. m.id .. ")")
                     Data.setConfig(m.id, "totalIn",    0)
                     Data.setConfig(m.id, "totalOut",   0)
                     Data.setConfig(m.id, "totalPlays", 0)
@@ -536,7 +536,7 @@ local function handleKey(key)
             local m = UI.getSelectedMachine()
             local draft = UI.getConfigDraft()
             if m then
-                Logger.info("Saving config for " .. m.label)
+                logger.info("Saving config for " .. m.label)
                 for k, v in pairs(draft) do
                     Data.setConfig(m.id, k, v)
                 end
@@ -554,7 +554,7 @@ end
 refreshUI()
 UI.setStatus("Manager online. ID: " .. os.getComputerID()
     .. " | 1 chip = " .. Currency.format(CHIP_VALUE_SPURS), 5)
-Logger.info("Main loop starting. Ready. Chip value: 1 chip = "
+logger.info("Main loop starting. Ready. Chip value: 1 chip = "
     .. CHIP_VALUE_SPURS .. " spurs (" .. Currency.format(CHIP_VALUE_SPURS) .. ")")
 
 local function mainLoop()
@@ -574,7 +574,7 @@ local function mainLoop()
             if result == "quit" then return end
 
         elseif event == "rednet_message" then
-            Logger.debug("EVENT: rednet_message from=" .. tostring(p1)
+            logger.debug("EVENT: rednet_message from=" .. tostring(p1)
                 .. " protocol=" .. tostring(p3))
             if p3 == Net.PROTOCOL then
                 handleNetMessage(p1, p2)
@@ -582,15 +582,15 @@ local function mainLoop()
                 handleFileRequest(p1, p2)
             elseif p3 == "CASINO_LOG" then
                 if type(p2) == "table" and p2.line then
-                    Logger.info("REMOTE: " .. tostring(p2.line))
+                    logger.info("REMOTE: " .. tostring(p2.line))
                 end
             else
-                Logger.warn("EVENT: unknown protocol '" .. tostring(p3)
+                logger.warn("EVENT: unknown protocol '" .. tostring(p3)
                     .. "' from ID " .. tostring(p1))
             end
 
         elseif event == "terminate" then
-            Logger.info("Terminate signal received. Shutting down.")
+            logger.info("Terminate signal received. Shutting down.")
             return
         end
     end
@@ -598,5 +598,5 @@ end
 
 mainLoop()
 
-Logger.info("Casino Manager shutdown.")
+logger.info("Casino Manager shutdown.")
 print("[Casino Manager] Shutdown.")

@@ -15,7 +15,7 @@ local _whitelist = {}
 local _rates     = {}
 local _locked    = {}
 local _alerts    = {}
-local _log       = nil   -- Logger injected from init.lua
+local _log       = nil   -- logger injected from init.lua
 
 local RATE_LIMIT   = 3
 local LOCKOUT_SECS = 10
