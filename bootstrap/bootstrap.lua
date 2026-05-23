@@ -27,11 +27,21 @@ local GAME_TYPES = {
                 key      = "detectorSide",
                 optional = false,
             },
+            {
+                label    = "Wireless Modem",
+                versions = { "modem" },
+                key      = "modemSide",
+                optional = false,
+                filter   = function(name)
+                    local m = peripheral.wrap(name)
+                    return m and m.isWireless and m.isWireless()
+                end,
+            },
         },
     },
 }
 
---  Config 
+-- ─── Config ───────────────────────────────────────────────────────────────────
 
 local function loadConfig()
     if not fs.exists(CONFIG_FILE) then return {} end
@@ -56,7 +66,7 @@ local function saveConfig(cfg)
     return true
 end
 
---  Bank config 
+-- ─── Bank config ─────────────────────────────────────────────────────────────
 
 local BANK_CONFIG_FILE = "bank_config.json"
 
@@ -78,41 +88,7 @@ local function saveBankConfig(cfg)
     return true
 end
 
-local function bankSetup(savedBank)
-    term.setTextColor(colours.cyan)
-    print("")
-    print("Bank connection:")
-    term.setTextColor(colours.white)
-    printInfo("This machine's ID: " .. os.getComputerID())
-    printInfo("Make sure this ID is whitelisted on the bank server.")
-    print("")
-
-    local cfg = {}
-    cfg.protocol    = prompt("Rednet protocol",    savedBank.protocol    or "bank_protocol")
-    cfg.hostname    = prompt("Rednet hostname",     savedBank.hostname    or "bank_server")
-    cfg.bankTimeout = tonumber(prompt("Request timeout (s)", savedBank.bankTimeout or 3))
-
-    local token = prompt("Shared secret token (leave blank if none)", savedBank.token or "")
-    cfg.token = (token and token ~= "") and token or nil
-    if cfg.token then printOk("Token set.") else printWarn("No token set.") end
-
-    -- Try to open modem and ping the server to verify
-    peripheral.find("modem", rednet.open)
-    io.write("  Pinging bank server... ")
-    local serverId = rednet.lookup(cfg.protocol, cfg.hostname)
-    if serverId then
-        term.setTextColor(colours.lime)
-        print("Found! Server ID: " .. serverId)
-        term.setTextColor(colours.white)
-        cfg.serverID = serverId
-    else
-        printWarn("Server not found on network. Saved anyway — make sure server is online.")
-    end
-
-    return cfg
-end
-
---  UI helpers 
+-- ─── UI helpers ───────────────────────────────────────────────────────────────
 
 local function clear()
     term.setBackgroundColor(colours.black)
@@ -156,7 +132,41 @@ local function header(mode)
     term.setTextColor(colours.white)
 end
 
---  HTTP download 
+local function bankSetup(savedBank, modemSide)
+    term.setTextColor(colours.cyan)
+    print("")
+    print("Bank connection:")
+    term.setTextColor(colours.white)
+    printInfo("This machine's ID: " .. os.getComputerID())
+    printInfo("Make sure this ID is whitelisted on the bank server.")
+    print("")
+
+    local cfg = {}
+    cfg.protocol    = prompt("Rednet protocol",      savedBank.protocol    or "bank_protocol")
+    cfg.hostname    = prompt("Rednet hostname",       savedBank.hostname    or "bank_server")
+    cfg.serverID    = tonumber(prompt("Bank server computer ID", savedBank.serverID or ""))
+    cfg.bankTimeout = tonumber(prompt("Request timeout (s)",     savedBank.bankTimeout or 3))
+
+    local token = prompt("Shared secret token (leave blank if none)", savedBank.token or "")
+    cfg.token = (token and token ~= "") and token or nil
+    if cfg.token then printOk("Token set.") else printWarn("No token set.") end
+
+    if not cfg.serverID then
+        printWarn("No server ID entered. BankLib will fall back to rednet.lookup.")
+    else
+        printOk("Server ID: " .. cfg.serverID)
+    end
+
+    -- Open the wireless modem for rednet
+    if modemSide then
+        rednet.open(modemSide)
+        printOk("Wireless modem opened on: " .. modemSide)
+    end
+
+    return cfg
+end
+
+-- ─── HTTP download ────────────────────────────────────────────────────────────
 
 local function downloadFile(filename, silent)
     local url = BASE_URL .. filename
@@ -219,15 +229,17 @@ local function downloadAll(files, silent)
     return failed
 end
 
---  Peripheral detection 
+-- ─── Peripheral detection ─────────────────────────────────────────────────────
 
-local function findAllMatching(versions)
+local function findAllMatching(versions, filter)
     local found = {}
     local vset  = {}
     for _, v in ipairs(versions) do vset[v] = true end
     for _, name in ipairs(peripheral.getNames()) do
         if vset[peripheral.getType(name)] then
-            found[#found + 1] = { name = name, typeName = peripheral.getType(name) }
+            if not filter or filter(name) then
+                found[#found + 1] = { name = name, typeName = peripheral.getType(name) }
+            end
         end
     end
     return found
@@ -240,7 +252,7 @@ local function detectPeripherals(gameType, savedCfg)
 
     local result = {}
     for _, periph in ipairs(gameType.peripherals or {}) do
-        local matches = findAllMatching(periph.versions)
+        local matches = findAllMatching(periph.versions, periph.filter)
 
         if #matches == 1 then
             result[periph.key] = matches[1].name
@@ -280,7 +292,7 @@ local function detectPeripherals(gameType, savedCfg)
     return result
 end
 
---  Game type selection 
+-- ─── Game type selection ──────────────────────────────────────────────────────
 
 local function selectGameType(savedId)
     if savedId then
@@ -306,7 +318,7 @@ local function selectGameType(savedId)
     return GAME_TYPES[n]
 end
 
---  Write startup shim 
+-- ─── Write startup shim ───────────────────────────────────────────────────────
 
 local function writeStartup(startupFile)
     local f = io.open("startup.lua", "w")
@@ -319,7 +331,7 @@ local function writeStartup(startupFile)
     return true
 end
 
---  UPDATE MODE 
+-- ─── UPDATE MODE ─────────────────────────────────────────────────────────────
 -- Called automatically by startup.lua on every boot.
 -- Silently re-downloads all files, then exits so startup continues to the game.
 
@@ -359,7 +371,7 @@ local function runUpdate()
     os.sleep(1)
 end
 
---  FULL BOOTSTRAP MODE 
+-- ─── FULL BOOTSTRAP MODE ──────────────────────────────────────────────────────
 
 local function runBootstrap()
     local savedCfg = loadConfig()
@@ -395,7 +407,7 @@ local function runBootstrap()
 
     -- Bank setup
     local savedBank = loadBankConfig()
-    local bankCfg = bankSetup(savedBank)
+    local bankCfg = bankSetup(savedBank, periphCfg.modemSide)
     if not bankCfg then
         printErr("Bank setup failed. Fix and re-run bootstrap.")
         return
@@ -433,7 +445,7 @@ local function runBootstrap()
     os.reboot()
 end
 
---  Entry point 
+-- ─── Entry point ─────────────────────────────────────────────────────────────
 
 local args = { ... }
 if args[1] == "--update" then
