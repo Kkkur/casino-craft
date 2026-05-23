@@ -5,6 +5,7 @@
 local CONFIG_FILE = "machine_config.txt"
 local BASE_URL    = "https://raw.githubusercontent.com/Kkkur/casino-craft/refs/heads/feature/libraries/"
 
+<<<<<<< Updated upstream
 -- Files each game type needs, relative to BASE_URL.
 -- Add new game types here as they are built.
 local GAME_FILES = {
@@ -52,6 +53,47 @@ local function ask(question, default)
 end
 
 -- Config is stored as simple key=value lines.
+=======
+local GAME_TYPES = {
+    {
+        id    = "blackjack",
+        label = "Blackjack Table",
+        files = {
+            -- Engine & machine
+            "blackjack/blackjack.lua",
+            "blackjack/bj_machine.lua",
+            "blackjack/bj_startup.lua",
+            -- Shared game libraries
+            "libraries/games/UILib.lua",
+            "libraries/games/CardsLib.lua",
+            "libraries/games/ChipsLib.lua",
+            -- Casino infrastructure
+            "libraries/bank/BankLib.lua",
+            "libraries/logger/logger.lua",
+            "libraries/currencylib.lua",
+        },
+        startup = "blackjack/bj_startup.lua",
+        peripherals = {
+            {
+                label    = "Player Detector",
+                versions = { "playerDetector", "player_detector" },
+                key      = "detectorSide",
+                optional = true,
+            },
+            {
+                label    = "Monitor",
+                versions = { "monitor" },
+                key      = "monitorSide",
+                optional = false,
+            },
+        },
+    },
+}
+
+
+-- Config file (persists manager ID, game type, peripheral sides) 
+local CONFIG_FILE = "machine_config.txt"
+>>>>>>> Stashed changes
 
 local function loadConfig()
     if not fs.exists(CONFIG_FILE) then return {} end
