@@ -56,6 +56,62 @@ local function saveConfig(cfg)
     return true
 end
 
+--  Bank config 
+
+local BANK_CONFIG_FILE = "bank_config.json"
+
+local function loadBankConfig()
+    if not fs.exists(BANK_CONFIG_FILE) then return {} end
+    local f = io.open(BANK_CONFIG_FILE, "r")
+    if not f then return {} end
+    local raw = f:read("*a")
+    f:close()
+    local ok, data = pcall(textutils.unserialiseJSON, raw)
+    return (ok and type(data) == "table") and data or {}
+end
+
+local function saveBankConfig(cfg)
+    local f = io.open(BANK_CONFIG_FILE, "w")
+    if not f then printErr("Could not write " .. BANK_CONFIG_FILE); return false end
+    f:write(textutils.serialiseJSON(cfg))
+    f:close()
+    return true
+end
+
+local function bankSetup(savedBank)
+    term.setTextColor(colours.cyan)
+    print("")
+    print("Bank connection:")
+    term.setTextColor(colours.white)
+    printInfo("This machine's ID: " .. os.getComputerID())
+    printInfo("Make sure this ID is whitelisted on the bank server.")
+    print("")
+
+    local cfg = {}
+    cfg.protocol    = prompt("Rednet protocol",    savedBank.protocol    or "bank_protocol")
+    cfg.hostname    = prompt("Rednet hostname",     savedBank.hostname    or "bank_server")
+    cfg.bankTimeout = tonumber(prompt("Request timeout (s)", savedBank.bankTimeout or 3))
+
+    local token = prompt("Shared secret token (leave blank if none)", savedBank.token or "")
+    cfg.token = (token and token ~= "") and token or nil
+    if cfg.token then printOk("Token set.") else printWarn("No token set.") end
+
+    -- Try to open modem and ping the server to verify
+    peripheral.find("modem", rednet.open)
+    io.write("  Pinging bank server... ")
+    local serverId = rednet.lookup(cfg.protocol, cfg.hostname)
+    if serverId then
+        term.setTextColor(colours.lime)
+        print("Found! Server ID: " .. serverId)
+        term.setTextColor(colours.white)
+        cfg.serverID = serverId
+    else
+        printWarn("Server not found on network. Saved anyway — make sure server is online.")
+    end
+
+    return cfg
+end
+
 --  UI helpers 
 
 local function clear()
@@ -337,6 +393,14 @@ local function runBootstrap()
         return
     end
 
+    -- Bank setup
+    local savedBank = loadBankConfig()
+    local bankCfg = bankSetup(savedBank)
+    if not bankCfg then
+        printErr("Bank setup failed. Fix and re-run bootstrap.")
+        return
+    end
+
     -- Download all files
     local failed = downloadAll(gameType.files, false)
     if #failed > 0 then
@@ -352,6 +416,9 @@ local function runBootstrap()
     for k, v in pairs(periphCfg) do newCfg[k] = v end
     saveConfig(newCfg)
     printOk("Config saved.")
+
+    saveBankConfig(bankCfg)
+    printOk("Bank config saved.")
 
     -- Write startup shim
     if not writeStartup(gameType.startup) then return end
