@@ -10,7 +10,7 @@ local Chips  = dofile("/libraries/games/ChipsLib.lua")
 local Bank   = dofile("/libraries/bank/BankLib.lua")
 local Logger = dofile("/libraries/logger/logger.lua")
 
--- ─── Layout config —─────────────────────────
+--  Layout config —
 
 local LAYOUT = {
     -- Top bar
@@ -60,7 +60,7 @@ local LAYOUT = {
     idleY          = 88,    -- y of "BLACKJACK" on idle screen
 }
 
--- ─── Machine config ───────────────────────────────────────────────────────────
+--  Machine config 
 
 local CFG = {
     managerId    = nil,
@@ -89,7 +89,7 @@ local function loadMachineConfig()
     f:close()
 end
 
--- ─── Colors ───────────────────────────────────────────────────────────────────
+--  Colors 
 
 local C = {
     felt     = 0x1a6b35,
@@ -103,7 +103,7 @@ local C = {
     red      = 0xCC2222,
 }
 
--- ─── Shared state ─────────────────────────────────────────────────────────────
+--  Shared state 
 
 local shared = {
     shutdown      = false,
@@ -111,7 +111,7 @@ local shared = {
     currentPlayer = nil,
 }
 
--- ─── Peripherals ──────────────────────────────────────────────────────────────
+--  Peripherals 
 
 local detector = nil
 local gpu      = nil
@@ -143,7 +143,7 @@ local function initPeripherals()
     ui = UI.new(gpu, 64)
 end
 
--- ─── Derived layout (computed once after ui is ready) ─────────────────────────
+--  Derived layout (computed once after ui is ready) 
 
 local sw, sh
 local BAR_Y
@@ -160,7 +160,7 @@ local function handX(n)
     return math.floor((sw - totalW) / 2)
 end
 
--- ─── Bank helpers ─────────────────────────────────────────────────────────────
+--  Bank helpers 
 
 local function getPlayerBalance(name)
     local bal, err = Bank.getBalance(name)
@@ -180,7 +180,7 @@ local function creditWin(name, amount)
     return bal, err
 end
 
--- ─── Player detector thread ───────────────────────────────────────────────────
+--  Player detector thread 
 
 local DETECT_RANGE = 2
 
@@ -199,7 +199,7 @@ local function playerDetectorThread()
     end
 end
 
--- ─── Rednet ───────────────────────────────────────────────────────────────────
+--  Rednet 
 
 local function remoteLog(level, msg)
     Logger.log(level, msg)
@@ -248,7 +248,7 @@ local function rednetListener()
     end
 end
 
--- ─── Game state ───────────────────────────────────────────────────────────────
+--  Game state 
 
 local deck, playerHand, dealerHand
 local balance    = 0
@@ -342,7 +342,7 @@ local function doDealerPlay()
     gameState = "result"
 end
 
--- ─── Drawing ──────────────────────────────────────────────────────────────────
+--  Drawing 
 
 local function drawFelt()
     local L = LAYOUT
@@ -481,7 +481,7 @@ local function redraw()
     ui:sync()
 end
 
--- ─── Input ────────────────────────────────────────────────────────────────────
+--  Input 
 
 local function onButton(id)
     if gameState == "betting" then
@@ -518,7 +518,7 @@ local function onButton(id)
     end
 end
 
--- ─── Game loop ────────────────────────────────────────────────────────────────
+--  Game loop 
 
 local function gameLoop()
     while not shared.shutdown do
@@ -558,7 +558,7 @@ local function gameLoop()
     end
 end
 
--- ─── Main ─────────────────────────────────────────────────────────────────────
+--  Main 
 
 local function main()
     math.randomseed(os.time())

@@ -1,57 +1,43 @@
--- Lives at the root of every game machine as the default startup script.
--- On first boot it walks you through setup and saves everything to machine_config.txt.
--- On every boot after that it loads the saved config, wgets the latest files, and launches the game.
+-- bootstrap.lua
+-- Run normally for full setup, or with --update for silent file refresh
 
+local BASE_URL   = "https://raw.githubusercontent.com/Kkkur/casino-craft/refs/heads/develop/"
 local CONFIG_FILE = "machine_config.txt"
-local BASE_URL    = "https://raw.githubusercontent.com/Kkkur/casino-craft/refs/heads/develop/"
 
--- Files each game type needs, relative to BASE_URL.
--- Add new game types here as they are built.
-local GAME_FILES = {
-    blackjack = {
-        "games/libraries/barrel_handler.lua",
-        "games/libraries/net_client.lua",
-        "games/libraries/ui_lib.lua",
-        "games/libraries/player_detector.lua",
-        "games/blackjack/blackjack.lua",
-        "games/blackjack/bj_ui.lua",
-        "games/blackjack/bj_machine.lua",
-    },
-    roulette = {
-        "games/libraries/barrel_handler.lua",
-        "games/libraries/net_client.lua",
-        "games/libraries/ui_lib.lua",
-        "games/libraries/player_detector.lua",
-        "games/roulette/roulette.lua",
-        "games/roulette/roulette_ui.lua",
-        "games/roulette/roulette_machine.lua",
+local GAME_TYPES = {
+    {
+        id    = "blackjack",
+        label = "Blackjack Table",
+        files = {
+            "blackjack/blackjack.lua",
+            "blackjack/bj_machine.lua",
+            "blackjack/bj_startup.lua",
+            "libraries/games/UILib.lua",
+            "libraries/games/CardsLib.lua",
+            "libraries/games/ChipsLib.lua",
+            "libraries/bank/BankLib.lua",
+            "libraries/logger/logger.lua",
+            "libraries/currencylib.lua",
+        },
+        startup = "blackjack/bj_startup.lua",
+        peripherals = {
+            {
+                label    = "Player Detector",
+                versions = { "playerDetector", "player_detector" },
+                key      = "detectorSide",
+                optional = false,
+            },
+            {
+                label    = "GPU Monitor",
+                versions = { "gpu" },
+                key      = "monitorSide",
+                optional = false,
+            },
+        },
     },
 }
 
--- The file to run after updating, per game type.
-local GAME_ENTRY = {
-    blackjack = "games/blackjack/bj_machine.lua",
-    roulette  = "games/roulette/roulette_machine.lua",
-}
-
-local function log(msg)
-    print("[bootstrap] " .. msg)
-end
-
-local function ask(question, default)
-    term.setTextColor(colours.cyan)
-    if default then
-        io.write(question .. " [" .. tostring(default) .. "]: ")
-    else
-        io.write(question .. ": ")
-    end
-    term.setTextColor(colours.white)
-    local input = io.read()
-    if not input or input == "" then return default end
-    return input
-end
-
--- Config is stored as simple key=value lines.
+--  Config 
 
 local function loadConfig()
     if not fs.exists(CONFIG_FILE) then return {} end
@@ -60,9 +46,7 @@ local function loadConfig()
     local cfg = {}
     for line in f:lines() do
         local k, v = line:match("^(.-)=(.+)$")
-        if k then
-            cfg[k] = tonumber(v) or v
-        end
+        if k then cfg[k] = tonumber(v) or v end
     end
     f:close()
     return cfg
@@ -70,10 +54,7 @@ end
 
 local function saveConfig(cfg)
     local f = io.open(CONFIG_FILE, "w")
-    if not f then
-        log("ERROR: could not write " .. CONFIG_FILE)
-        return false
-    end
+    if not f then return false end
     for k, v in pairs(cfg) do
         f:write(tostring(k) .. "=" .. tostring(v) .. "\n")
     end
@@ -81,287 +62,313 @@ local function saveConfig(cfg)
     return true
 end
 
--- Walks through all questions needed for first boot or fills gaps if something is missing.
--- Only asks about things that are not already in cfg.
+--  UI helpers 
 
-local function setupConfig(cfg)
-    term.setTextColor(colours.yellow)
-    print("=== CASINO MACHINE SETUP ===")
+local function clear()
+    term.setBackgroundColor(colours.black)
+    term.clear()
+    term.setCursorPos(1, 1)
+end
+
+local function printColor(color, msg)
+    term.setTextColor(color)
+    print(msg)
     term.setTextColor(colours.white)
-
-    -- Manager ID
-    if not cfg.managerId then
-        local id = tonumber(ask("Manager computer ID"))
-        if not id then
-            log("Invalid manager ID, aborting.")
-            return nil
-        end
-        cfg.managerId = id
-    end
-
-    -- Game type
-    if not cfg.gameType then
-        print("Available game types:")
-        local types = {}
-        for k in pairs(GAME_FILES) do
-            types[#types + 1] = k
-            print("  [" .. #types .. "] " .. k)
-        end
-        local choice = tonumber(ask("Choose game type"))
-        if not choice or not types[choice] then
-            log("Invalid choice, aborting.")
-            return nil
-        end
-        cfg.gameType = types[choice]
-    end
-
-    -- Machine label
-    if not cfg.label then
-        local label = ask("Machine name (e.g. Blackjack Table 1)")
-        if not label then
-            log("No label entered, aborting.")
-            return nil
-        end
-        cfg.label = label
-    end
-
-    -- Monitor
-    if not cfg.monitorSide then
-        local monitors = {}
-        for _, name in ipairs(peripheral.getNames()) do
-            if peripheral.getType(name) == "monitor" then
-                monitors[#monitors + 1] = name
-            end
-        end
-        if #monitors == 0 then
-            log("No monitor found, please attach one and reboot.")
-            return nil
-        elseif #monitors == 1 then
-            cfg.monitorSide = monitors[1]
-            log("Monitor auto-detected: " .. monitors[1])
-        else
-            print("Multiple monitors found:")
-            for i, name in ipairs(monitors) do
-                print("  [" .. i .. "] " .. name)
-            end
-            local choice = tonumber(ask("Choose monitor"))
-            if not choice or not monitors[choice] then
-                log("Invalid choice, aborting.")
-                return nil
-            end
-            cfg.monitorSide = monitors[choice]
-        end
-    end
-
-    -- Player Detector
-    if not cfg.playerDetector then
-        local num = ask("Player detector number (e.g. 1 for advancedperipherals:player_detector_1)")
-        num = tonumber(num)
-        if not num then
-            log("Invalid detector number, aborting.")
-            return nil
-        end
-        cfg.playerDetector = "player_detector_" .. num
-        
-        local found = false
-        for _, name in ipairs(peripheral.getNames()) do
-            if name == cfg.playerDetector then found = true; break end
-        end
-        if not found then
-            log("Warning: " .. cfg.playerDetector .. " not visible on network right now.")
-        else
-            log("Player detector confirmed: " .. cfg.playerDetector)
-        end
-    end
-
-    -- Player deposit barrel
-    if not cfg.playerBarrel then
-        local num = ask("Deposit barrel number (e.g. 2 for minecraft:barrel_2)")
-        num = tonumber(num)
-        if not num then
-            log("Invalid barrel number, aborting.")
-            return nil
-        end
-        cfg.playerBarrel = "minecraft:barrel_" .. num
-        local found = false
-        for _, name in ipairs(peripheral.getNames()) do
-            if name == cfg.playerBarrel then found = true; break end
-        end
-        if not found then
-            log("Warning: " .. cfg.playerBarrel .. " not visible on network right now.")
-            log("Make sure the wired modem is connected before starting the game.")
-        else
-            log("Deposit barrel confirmed: " .. cfg.playerBarrel)
-        end
-    end
-
-    -- Shared casino reserve barrel
-    if not cfg.sharedBarrel then
-        local num = ask("Shared reserve barrel number (e.g. 5 for minecraft:barrel_5)")
-        num = tonumber(num)
-        if not num then
-            log("Invalid barrel number, aborting.")
-            return nil
-        end
-        cfg.sharedBarrel = "minecraft:barrel_" .. num
-        local found = false
-        for _, name in ipairs(peripheral.getNames()) do
-            if name == cfg.sharedBarrel then found = true; break end
-        end
-        if not found then
-            log("Warning: " .. cfg.sharedBarrel .. " not visible on network right now.")
-        else
-            log("Reserve barrel confirmed: " .. cfg.sharedBarrel)
-        end
-    end
-
-    return cfg
 end
 
--- Checks if any required config keys are missing and triggers re-ask for those only.
-local function validateConfig(cfg)
-    local required = { "managerId", "gameType", "label", "monitorSide", "playerDetector", "playerBarrel", "sharedBarrel" }
-    local missing = false
-    for _, key in ipairs(required) do
-        if not cfg[key] then
-            missing = true
-            break
-        end
+local function printOk(msg)   printColor(colours.lime,      "[OK]  " .. msg) end
+local function printErr(msg)  printColor(colours.red,       "[ERR] " .. msg) end
+local function printWarn(msg) printColor(colours.yellow,    "[!!!] " .. msg) end
+local function printInfo(msg) printColor(colours.lightGrey, "      " .. msg) end
+
+local function prompt(msg, default)
+    term.setTextColor(colours.cyan)
+    if default ~= nil then
+        io.write(msg .. " [" .. tostring(default) .. "]: ")
+    else
+        io.write(msg .. ": ")
     end
-    if missing then
-        log("Some config is missing, running setup...")
-        return setupConfig(cfg)
-    end
-    return cfg
+    term.setTextColor(colours.white)
+    local input = io.read()
+    if input == nil or input == "" then return default end
+    return input
 end
 
--- Downloads a file from GitHub, always replacing whatever is there.
-local function download(remotePath, localPath)
-    local url = BASE_URL .. remotePath .. "?t=" .. os.epoch("utc")
-    
-    -- Fetch the data directly via HTTP
-    local response = http.get(url, nil, true) -- true = binary mode
-    if not response then
-        log("FAILED: Could not connect to " .. url)
-        return false
+local function header(mode)
+    term.setTextColor(colours.yellow)
+    print("================================")
+    if mode == "update" then
+        print("   CASINO MACHINE UPDATER")
+    else
+        print("   CASINO MACHINE BOOTSTRAP")
     end
-    
-    local content = response.readAll()
-    response.close()
-    
-    -- Ensure directory exists
-    local dir = localPath:match("^(.*)/[^/]+$")
+    print("================================")
+    term.setTextColor(colours.white)
+end
+
+--  HTTP download 
+
+local function downloadFile(filename, silent)
+    local url = BASE_URL .. filename
+    if not silent then io.write("  " .. filename .. "... ") end
+
+    local ok, res = pcall(http.get, url)
+    if not ok or not res then
+        if not silent then printColor(colours.red, "FAILED (request error)") end
+        return false, "request failed"
+    end
+
+    if res.getResponseCode and res.getResponseCode() ~= 200 then
+        local code = res.getResponseCode()
+        res.close()
+        if not silent then printColor(colours.red, "FAILED (HTTP " .. code .. ")") end
+        return false, "HTTP " .. code
+    end
+
+    local content = res.readAll()
+    res.close()
+
+    if not content or #content == 0 then
+        if not silent then printColor(colours.red, "FAILED (empty)") end
+        return false, "empty response"
+    end
+
+    -- Ensure parent directories exist
+    local dir = fs.getDir(filename)
     if dir and dir ~= "" and not fs.exists(dir) then
         fs.makeDir(dir)
     end
-    
-    -- Write the file
-    local f = io.open(localPath, "w")
-    if not f then 
-        log("FAILED: Could not open " .. localPath .. " for writing")
-        return false 
+
+    local f = io.open(filename, "w")
+    if not f then
+        if not silent then printColor(colours.red, "WRITE ERROR") end
+        return false, "write error"
     end
     f:write(content)
     f:close()
-    
+
+    if not silent then
+        term.setTextColor(colours.lime)
+        print("OK (" .. #content .. " bytes)")
+        term.setTextColor(colours.white)
+    end
     return true
 end
 
--- Downloads all files for the given game type.
-local function updateFiles(gameType)
-    local files = GAME_FILES[gameType]
-    if not files then
-        log("Unknown game type: " .. tostring(gameType))
-        return false
+local function downloadAll(files, silent)
+    if not silent then
+        term.setTextColor(colours.cyan)
+        print("\nDownloading " .. #files .. " file(s) from GitHub:")
+        term.setTextColor(colours.white)
     end
-
-    log("Updating " .. #files .. " file(s) for " .. gameType .. "...")
     local failed = {}
-    for _, path in ipairs(files) do
-        log("Fetching: " .. path)
-        -- Save to the same relative path so dofile paths match the repo structure
-        if not download(path, path) then
-            log("FAILED: " .. path)
-            failed[#failed + 1] = path
+    for _, filename in ipairs(files) do
+        local ok, err = downloadFile(filename, silent)
+        if not ok then failed[#failed + 1] = { file = filename, err = err } end
+    end
+    return failed
+end
+
+--  Peripheral detection 
+
+local function findAllMatching(versions)
+    local found = {}
+    local vset  = {}
+    for _, v in ipairs(versions) do vset[v] = true end
+    for _, name in ipairs(peripheral.getNames()) do
+        if vset[peripheral.getType(name)] then
+            found[#found + 1] = { name = name, typeName = peripheral.getType(name) }
         end
     end
+    return found
+end
 
-    if #failed > 0 then
-        log("WARNING: " .. #failed .. " file(s) failed to download.")
-        for _, f in ipairs(failed) do
-            log("  - " .. f)
+local function detectPeripherals(gameType, savedCfg)
+    term.setTextColor(colours.cyan)
+    print("\nChecking peripherals...")
+    term.setTextColor(colours.white)
+
+    local result = {}
+    for _, periph in ipairs(gameType.peripherals or {}) do
+        local matches = findAllMatching(periph.versions)
+
+        if #matches == 1 then
+            result[periph.key] = matches[1].name
+            printOk(periph.label .. ": " .. matches[1].name)
+
+        elseif #matches > 1 then
+            printWarn("Multiple " .. periph.label .. " found:")
+            for i, m in ipairs(matches) do
+                printInfo("[" .. i .. "] " .. m.name .. " (" .. m.typeName .. ")")
+            end
+            local defaultIdx = 1
+            if savedCfg[periph.key] then
+                for i, m in ipairs(matches) do
+                    if m.name == savedCfg[periph.key] then defaultIdx = i; break end
+                end
+            end
+            local choice = tonumber(prompt("Which " .. periph.label .. " to use?", defaultIdx))
+            if choice and matches[choice] then
+                result[periph.key] = matches[choice].name
+                printOk(periph.label .. ": " .. matches[choice].name)
+            else
+                result[periph.key] = matches[1].name
+                printWarn("Invalid choice, using: " .. matches[1].name)
+            end
+
+        else
+            if periph.optional then
+                printWarn(periph.label .. " not found (optional — skipping)")
+                result[periph.key] = nil
+            else
+                printErr(periph.label .. " not found! (required)")
+                printErr("Tried types: " .. table.concat(periph.versions, ", "))
+                return nil
+            end
         end
-        return false
     end
+    return result
+end
 
-    log("All files updated.")
+--  Game type selection 
+
+local function selectGameType(savedId)
+    if savedId then
+        for _, gt in ipairs(GAME_TYPES) do
+            if gt.id == savedId then
+                local ans = prompt("Saved machine type: " .. gt.label .. " — use this? [Y/n]", "y")
+                if ans:lower() ~= "n" then return gt end
+                break
+            end
+        end
+    end
+    term.setTextColor(colours.cyan)
+    print("\nSelect machine type:")
+    term.setTextColor(colours.white)
+    for i, gt in ipairs(GAME_TYPES) do
+        print("  [" .. i .. "] " .. gt.label)
+    end
+    local n = tonumber(prompt("Choice"))
+    if not n or not GAME_TYPES[n] then
+        printErr("Invalid choice.")
+        return nil
+    end
+    return GAME_TYPES[n]
+end
+
+--  Write startup shim 
+
+local function writeStartup(startupFile)
+    local f = io.open("startup.lua", "w")
+    if not f then printErr("Could not write startup.lua!"); return false end
+    -- Startup runs bootstrap in update mode first, then launches the game
+    f:write('shell.run("bootstrap.lua", "--update")\n')
+    f:write('shell.run("' .. startupFile .. '")\n')
+    f:close()
+    printOk("startup.lua written")
     return true
 end
 
--- MAIN
+--  UPDATE MODE 
+-- Called automatically by startup.lua on every boot.
+-- Silently re-downloads all files, then exits so startup continues to the game.
 
--- Parse arguments. Usage: bootstrap -noupdate (skips downloading files, just launches)
-local args = {...}
-local noUpdate = false
-for _, arg in ipairs(args) do
-    if arg == "-noupdate" then noUpdate = true end
+local function runUpdate()
+    local cfg = loadConfig()
+    if not cfg.gameType then
+        -- No config at all — can't update, just continue booting
+        return
+    end
+
+    local gameType
+    for _, gt in ipairs(GAME_TYPES) do
+        if gt.id == cfg.gameType then gameType = gt; break end
+    end
+    if not gameType then return end
+
+    term.setTextColor(colours.yellow)
+    print("[Updater] Checking for updates...")
+    term.setTextColor(colours.white)
+
+    local failed = downloadAll(gameType.files, false)
+
+    if #failed == 0 then
+        term.setTextColor(colours.lime)
+        print("[Updater] All files up to date.")
+        term.setTextColor(colours.white)
+    else
+        term.setTextColor(colours.red)
+        print("[Updater] " .. #failed .. " file(s) failed to update:")
+        term.setTextColor(colours.white)
+        for _, f in ipairs(failed) do
+            printInfo(f.file .. " (" .. f.err .. ")")
+        end
+        printWarn("Continuing with existing files.")
+    end
+
+    os.sleep(1)
 end
 
-term.setBackgroundColor(colours.black)
-term.clear()
-term.setCursorPos(1, 1)
+--  FULL BOOTSTRAP MODE 
 
-local cfg = loadConfig()
-local firstBoot = (next(cfg) == nil)
+local function runBootstrap()
+    local savedCfg = loadConfig()
+    local isUpdate = (savedCfg.gameType ~= nil)
 
-if firstBoot then
-    log("First boot detected, starting setup...")
-    cfg = setupConfig(cfg or {})
+    clear()
+    header(isUpdate and "update" or "bootstrap")
+
+    if isUpdate then
+        printInfo("Existing config found. This will update all files and re-detect peripherals.")
+        printInfo("Press Enter to continue or Ctrl+T to abort.")
+        io.read()
+    end
+
+    -- Game type
+    local gameType = selectGameType(savedCfg.gameType)
+    if not gameType then return end
+
+    -- Peripheral detection
+    local periphCfg = detectPeripherals(gameType, savedCfg)
+    if not periphCfg then
+        printErr("Required peripheral(s) missing. Fix hardware and re-run bootstrap.")
+        return
+    end
+
+    -- Download all files
+    local failed = downloadAll(gameType.files, false)
+    if #failed > 0 then
+        printErr("Failed to download:")
+        for _, f in ipairs(failed) do printInfo(f.file .. " (" .. f.err .. ")") end
+        printErr("Bootstrap incomplete. Fix the above and try again.")
+        return
+    end
+    printOk("All " .. #gameType.files .. " file(s) downloaded.")
+
+    -- Save config (only on full success)
+    local newCfg = { gameType = gameType.id }
+    for k, v in pairs(periphCfg) do newCfg[k] = v end
+    saveConfig(newCfg)
+    printOk("Config saved.")
+
+    -- Write startup shim
+    if not writeStartup(gameType.startup) then return end
+
+    term.setTextColor(colours.yellow)
+    print("\n================================")
+    print("  Bootstrap complete!")
+    print("  Rebooting in 3 seconds...")
+    print("================================")
+    term.setTextColor(colours.white)
+    os.sleep(3)
+    os.reboot()
+end
+
+--  Entry point 
+
+local args = { ... }
+if args[1] == "--update" then
+    runUpdate()
 else
-    cfg = validateConfig(cfg)
+    runBootstrap()
 end
-
-if not cfg then
-    log("Setup incomplete, halting. Reboot to try again.")
-    return
-end
-
-saveConfig(cfg)
-log("Config saved.")
-
--- Open wireless modem before launching so the game has rednet ready
-local modem = peripheral.find("modem", function(_, m)
-    return m.isWireless and m.isWireless()
-end)
-if modem then
-    rednet.open(peripheral.getName(modem))
-    log("Wireless modem opened.")
-else
-    log("Warning: no wireless modem found.")
-end
-
--- Update all game files from GitHub (skip with -noupdate arg)
-if noUpdate then
-    log("Skipping update (-noupdate).")
-else
-    updateFiles(cfg.gameType)
-end
-
--- Write peripheral and barrel config into machine_config.txt so the game can read it
--- (already saved above but we re-save here in case updateFiles touched anything)
-saveConfig(cfg)
-
--- Launch the game
-local entry = GAME_ENTRY[cfg.gameType]
-if not entry then
-    log("No entry point defined for game type: " .. tostring(cfg.gameType))
-    return
-end
-
-if not fs.exists(entry) then
-    log("Entry file not found: " .. entry .. ", update may have failed.")
-    return
-end
-
-log("Launching " .. entry .. "...")
-shell.run(entry)

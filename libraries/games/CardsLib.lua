@@ -4,7 +4,7 @@
 
 local CardsLib = {}
 
--- ─── Constants ────────────────────────────────────────────────────────────────
+--  Constants 
 
 local SUITS = { "S", "H", "D", "C" }
 local RANKS = { "A","2","3","4","5","6","7","8","9","10","J","Q","K" }
@@ -31,7 +31,7 @@ local PIPS = {
     ["K"]  = nil,
 }
 
--- ─── Deck ─────────────────────────────────────────────────────────────────────
+--  Deck 
 
 function CardsLib.newDeck()
     local deck = {}
@@ -54,7 +54,7 @@ function CardsLib.deal(deck)
     return table.remove(deck)
 end
 
--- ─── Hand value (Blackjack) ───────────────────────────────────────────────────
+--  Hand value (Blackjack) 
 
 function CardsLib.handValue(hand)
     local total, aces = 0, 0
@@ -73,7 +73,7 @@ end
 function CardsLib.isBust(hand)      return CardsLib.handValue(hand) > 21 end
 function CardsLib.isBlackjack(hand) return #hand==2 and CardsLib.handValue(hand)==21 end
 
--- ─── Rendering ────────────────────────────────────────────────────────────────
+--  Rendering 
 
 function CardsLib.cardSize() return CARD_W, CARD_H end
 

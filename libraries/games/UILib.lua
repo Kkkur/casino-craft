@@ -5,7 +5,7 @@
 local UILib = {}
 UILib.__index = UILib
 
--- ─── Constructor ──────────────────────────────────────────────────────────────
+--  Constructor 
 
 function UILib.new(gpu, size)
     local self = setmetatable({}, UILib)
@@ -59,7 +59,7 @@ function UILib:safeXY(x, y)
     return clamp(x, self.x0, self.x1), clamp(y, self.y0, self.y1)
 end
 
--- ─── Primitives ───────────────────────────────────────────────────────────────
+--  Primitives 
 
 function UILib:clear(color)  self.gpu.fill(color or 0x000000) end
 function UILib:sync() self.gpu.sync() end
@@ -95,7 +95,7 @@ function UILib:line(x1, y1, x2, y2, color)
     self.gpu.line(sx1, sy1, sx2, sy2, color)
 end
 
--- ─── Panels & Labels ──────────────────────────────────────────────────────────
+--  Panels & Labels 
 
 function UILib:panel(x, y, w, h, bg, borderColor, thickness)
     self:rect(x, y, w, h, bg or 0x1a1a1a)
@@ -125,7 +125,7 @@ function UILib:infoPanel(x, y, w, h, label, value, bg, fg, labelFg)
     self:textCentered(x, y+13, w, tostring(value), fg,      bg)
 end
 
--- ─── Top Bar ──────────────────────────────────────────────────────────────────
+--  Top Bar 
 
 function UILib:setTopBar(opts)
     for k, v in pairs(opts) do self.topBar[k] = v end
@@ -160,7 +160,7 @@ function UILib:drawTopBar()
     self.ctx.drawText(self.sw - ctw - 4, ty, cStr, tb.chipsColor, tb.bg, 1)
 end
 
--- ─── Buttons ──────────────────────────────────────────────────────────────────
+--  Buttons 
 
 function UILib:button(id, opts)
     self.buttons[id] = {
@@ -219,7 +219,7 @@ function UILib:hitButton(x, y)
     end
 end
 
--- ─── Event loop ───────────────────────────────────────────────────────────────
+--  Event loop 
 
 function UILib:handleEvent(handlers)
     local e, p, x, y, s = os.pullEvent()
