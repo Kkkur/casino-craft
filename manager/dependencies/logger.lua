@@ -1,7 +1,7 @@
 -- logger.lua
 -- Persistent logger for the casino manager
 
-local Logger = {}
+local logger = {}
 
 local LOG_DIR    = "manager/logs"
 local LATEST     = LOG_DIR .. "/latest"
@@ -65,7 +65,7 @@ end
 
 -- Public API 
 
-function Logger.init()
+function logger.init()
     ensureDir()
     rotateLogs()
     local f = fs.open(LATEST, "w")
@@ -73,10 +73,10 @@ function Logger.init()
         f.writeLine("=== Casino Manager Log - Session start (day " .. os.day() .. " " .. timestamp() .. ") ===")
         f.close()
     end
-    Logger.info("Logger initialised. Logs in: " .. LOG_DIR)
+    logger.info("logger initialised. Logs in: " .. LOG_DIR)
 end
 
-function Logger.log(level, msg)
+function logger.log(level, msg)
     local line = "[" .. timestamp() .. "] [" .. level .. "] " .. tostring(msg)
     if level == "ERROR" then
         term.setTextColor(colours.red)
@@ -92,19 +92,19 @@ function Logger.log(level, msg)
     writeLine(line)
 end
 
-function Logger.info(msg)  Logger.log("INFO",  msg) end
-function Logger.warn(msg)  Logger.log("WARN",  msg) end
-function Logger.error(msg) Logger.log("ERROR", msg) end
-function Logger.debug(msg) Logger.log("DEBUG", msg) end
+function logger.info(msg)  logger.log("INFO",  msg) end
+function logger.warn(msg)  logger.log("WARN",  msg) end
+function logger.error(msg) logger.log("ERROR", msg) end
+function logger.debug(msg) logger.log("DEBUG", msg) end
 
-function Logger.logNet(senderId, protocol, msg)
+function logger.logNet(senderId, protocol, msg)
     local msgType = type(msg) == "table" and (msg.type or "?") or tostring(msg)
-    Logger.debug("NET <- ID " .. tostring(senderId) .. " [" .. tostring(protocol) .. "] type=" .. msgType)
+    logger.debug("NET <- ID " .. tostring(senderId) .. " [" .. tostring(protocol) .. "] type=" .. msgType)
 end
 
-function Logger.logSend(targetId, protocol, msg)
+function logger.logSend(targetId, protocol, msg)
     local msgType = type(msg) == "table" and (msg.type or "?") or tostring(msg)
-    Logger.debug("NET -> ID " .. tostring(targetId) .. " [" .. tostring(protocol) .. "] type=" .. msgType)
+    logger.debug("NET -> ID " .. tostring(targetId) .. " [" .. tostring(protocol) .. "] type=" .. msgType)
 end
 
-return Logger
+return logger
