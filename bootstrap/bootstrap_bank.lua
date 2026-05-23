@@ -1,7 +1,7 @@
 -- bootstrap/bootstrap_bank.lua
 
 local CONFIG_FILE = "bank_config.json"
-local BASE_URL    = "https://raw.githubusercontent.com/Kkkur/casino-craft/refs/heads/dev/dziksonn/"
+local BASE_URL    = "https://raw.githubusercontent.com/Kkkur/casino-craft/refs/heads/develop/"
 
 local MACHINE_TYPES = {
     {
