@@ -27,12 +27,6 @@ local GAME_TYPES = {
                 key      = "detectorSide",
                 optional = false,
             },
-            {
-                label    = "GPU Monitor",
-                versions = { "gpu" },
-                key      = "monitorSide",
-                optional = false,
-            },
         },
     },
 }
@@ -323,6 +317,14 @@ local function runBootstrap()
         printInfo("Press Enter to continue or Ctrl+T to abort.")
         io.read()
     end
+
+    -- GPU notice
+    term.setTextColor(colours.yellow)
+    print("")
+    print("IMPORTANT: The Tom's Peripherals GPU must be placed on the TOP face")
+    print("           of the computer. Other faces may not work correctly.")
+    term.setTextColor(colours.white)
+    prompt("Press Enter to continue", "")
 
     -- Game type
     local gameType = selectGameType(savedCfg.gameType)
