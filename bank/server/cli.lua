@@ -581,6 +581,13 @@ function cli.init(rednetHandler, vaultMod, profilesMod, ledgerMod, logger)
     _ledger   = ledgerMod
     _log      = logger
 
+    -- Hook the logger so every print re-pins the prompt to the bottom.
+    if logger and logger.setPrintHook then
+        logger.setPrintHook(function()
+            if _promptActive then redrawPrompt() end
+        end)
+    end
+
     local ok2, ac = pcall(dofile, "/libraries/autocomplete.lua")
     if ok2 and ac then
         _ac = ac

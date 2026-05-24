@@ -83,6 +83,15 @@ function logger.init(tag, logDir, debug)
     logger.info("logger initialised" .. (logDir and (" → " .. logDir) or " (no file)"))
 end
 
+local _printHook = nil
+
+-- Register a callback invoked after every terminal print.
+-- The hook receives no arguments; it is responsible for redrawing whatever
+-- it needs (e.g. the CLI prompt line).
+function logger.setPrintHook(fn)
+    _printHook = fn
+end
+
 function logger.log(level, msg)
     local tag  = _tag and ("[" .. _tag .. "] ") or ""
     local line = string.format("[%s] [%s] %s%s", timestamp(), level, tag, tostring(msg))
@@ -92,6 +101,7 @@ function logger.log(level, msg)
     term.setTextColor(col)
     print(line)
     term.setTextColor(colours.white)
+    if _printHook then _printHook() end
 end
 
 -- Raw print: no level/tag prefix on screen, but still written to log file with RAW tag
@@ -100,6 +110,7 @@ function logger.raw(msg, color)
     term.setTextColor(color or colours.white)
     print(tostring(msg))
     term.setTextColor(colours.white)
+    if _printHook then _printHook() end
 end
 
 function logger.info(msg)  logger.log("INFO",  msg) end

@@ -142,16 +142,18 @@ local function validateRequest(senderId, msg)
 end
 
 local _reconcilePending = false
+local _reconcileTimer   = nil
 
 local function scheduleReconcile()
     if not _reconcilePending then
         _reconcilePending = true
-        os.startTimer(2)
+        _reconcileTimer   = os.startTimer(2)
     end
 end
 
 local function reconcile()
     _reconcilePending = false
+    _reconcileTimer   = nil
     local sum          = profiles.sumAll()
     local ok, exp, act = vault.reconcile(sum, _gameFloat, COIN_ITEM)
     if not ok then
@@ -247,7 +249,10 @@ function rednetHandler.run()
         local ev, p1, p2 = os.pullEvent()
 
         if ev == "timer" then
-            if _reconcilePending then reconcile() end
+            if _reconcilePending and p1 == _reconcileTimer then
+                _reconcileTimer = nil
+                reconcile()
+            end
 
         elseif ev == "rednet_message" then
             local senderId, msg = p1, p2
