@@ -59,6 +59,16 @@ end
 
 function rednetHandler.getGameFloat() return _gameFloat end
 
+-- Shift gameFloat by delta. Used by admin commands (give/take/set) that change
+-- ledger balances without moving physical coins. The vault coin count does not
+-- change, so gameFloat must absorb the difference to keep the invariant:
+--   vault = profilesSum + gameFloat
+-- Crediting a player (delta > 0) reduces the house float by that amount.
+-- Debiting a player (delta < 0) increases the house float by that amount.
+function rednetHandler.adjustGameFloat(delta)
+    _gameFloat = _gameFloat - delta
+end
+
 function rednetHandler.resetGameFloat(value)
     _gameFloat = value or 0
 end
@@ -220,7 +230,10 @@ local function handle(senderId, msg)
         local before = profiles.getBalance(player)
         profiles.setBalance(player, amount)
         ledger.record(player, "set", amount, before, amount)
-        if _log then _log.info("set " .. player .. " balance=" .. amount .. " (was " .. before .. ")") end
+        -- admin set: no coins move physically, so gameFloat absorbs the delta
+        local delta = amount - before
+        _gameFloat = _gameFloat - delta
+        if _log then _log.info("set " .. player .. " balance=" .. amount .. " (was " .. before .. ") gameFloat adj " .. (-delta)) end
         scheduleReconcile()
         return { ok = true, balance = amount }
 

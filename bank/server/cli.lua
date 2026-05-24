@@ -168,6 +168,7 @@ commands["give"] = {
         end
         local after = _profiles.add(player, amount)
         _ledger.record(player, "admin_give", amount, after - amount, after)
+        _rednet.adjustGameFloat(amount)
         ok("Gave " .. amount .. " to " .. player .. ". Balance: " .. math.floor(after))
     end,
 }
@@ -186,6 +187,7 @@ commands["take"] = {
             err("Failed: " .. tostring(e) .. " (balance=" .. math.floor(before) .. ")")
         else
             _ledger.record(player, "admin_take", amount, before, after)
+            _rednet.adjustGameFloat(-amount)
             ok("Took " .. amount .. " from " .. player .. ". Balance: " .. math.floor(after))
         end
     end,
@@ -202,6 +204,8 @@ commands["set"] = {
         local before = _profiles.getBalance(player)
         _profiles.setBalance(player, amount)
         _ledger.record(player, "admin_set", amount, before, amount)
+        local delta = amount - before
+        _rednet.adjustGameFloat(delta)
         ok("Set " .. player .. " -> " .. amount .. " (was " .. math.floor(before) .. ")")
     end,
 }
@@ -231,6 +235,9 @@ commands["account remove"] = {
         local success, reason = _profiles.delete(player)
         if success then
             _ledger.record(player, "admin_delete", nil, bal, nil)
+            -- The player's coins are still physically in the vault; they
+            -- revert to the house float now that the ledger entry is gone.
+            if bal > 0 then _rednet.adjustGameFloat(-bal) end
             ok("Account deleted: " .. player)
         else
             err("Delete failed: " .. tostring(reason))
@@ -258,8 +265,12 @@ commands["account flush"] = {
             warn("This will wipe every account. Type: account flush confirm")
             return
         end
+        -- All player balances are about to vanish. Those coins are still
+        -- physically in the vault, so they revert to the house float.
+        local totalBefore = _profiles.sumAll()
         local count = _profiles.flush()
         _ledger.record("SERVER", "admin_flush", nil, nil, nil)
+        _rednet.adjustGameFloat(-totalBefore)
         ok("Flushed " .. count .. " accounts.")
     end,
 }
