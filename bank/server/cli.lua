@@ -35,6 +35,9 @@ local function redrawPrompt()
     term.setTextColor(colours.white)
     term.write(_PROMPT .. table.concat(_currentBuf))
     if _ac then _ac.preview(table.concat(_currentBuf), colours.grey) end
+    -- Leave cursor at the end of the typed buffer so readline's next
+    -- term.write() lands in the right column after a log line interrupts.
+    term.setCursorPos(#_PROMPT + #_currentBuf + 1, h)
 end
 
 local function rawOut(msg, color)
