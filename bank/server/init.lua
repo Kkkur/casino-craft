@@ -10,7 +10,7 @@ local rednetHandler = dofile("/bank/server/rednet.lua")
 local monitorMod    = dofile("/bank/server/monitor.lua")
 local cliMod        = dofile("/bank/server/cli.lua")
 
--- load config 
+-- load config
 
 local CONFIG_FILE = "bank_config.json"
 
@@ -29,8 +29,6 @@ end
 
 local cfg = loadConfig()
 
--- validate required config fields 
-
 local function needCfg(key)
     if not cfg[key] then
         logger.error("Missing config key '" .. key .. "'")
@@ -45,7 +43,7 @@ local token             = cfg.token
 local whitelist         = cfg.whitelist or {}
 local coinItem          = cfg.coinItem or "createdeco:brass_coin"
 
--- init subsystems 
+-- init subsystems
 
 logger.info("Initialising vault: " .. vaultPeripheral)
 vault.init(vaultPeripheral, logger)
@@ -55,23 +53,26 @@ monitorMod.setRednet(rednetHandler)
 monitorMod.setVault(vault)
 rednetHandler.init(token, whitelist, logger, vault)
 
+-- startup reconcile — gameFloat is 0 at boot
 logger.info("Startup reconciliation...")
-local sum            = profiles.sumAll()
-local ok, exp, act   = vault.reconcile(sum, coinItem)
-if not ok then
+local sum          = profiles.sumAll()
+local rok, exp, act = vault.reconcile(sum, 0, coinItem)
+if not rok then
     ledger.recordReconcile(exp, act)
-    logger.warn("Reconciliation MISMATCH on startup! expected=" .. exp .. " actual=" .. act)
+    logger.warn("Reconciliation MISMATCH on startup! expected=" .. exp .. " actual=" .. act
+        .. " delta=" .. (act - exp))
 else
     logger.info("Vault OK. Coins=" .. act)
 end
 
 ledger.record("SERVER", "startup", nil, nil, nil)
+
 logger.info("Initialising CLI...")
 cliMod.init(rednetHandler, vault, profiles, ledger, logger)
-
 logger.info("Ready.")
 
--- parallel runners 
+-- parallel runners
+-- CLI exits cleanly on 'exit' or terminate — server keeps running via waitForAll
 
 local function runMonitor()
     if not monitorPeripheral then
@@ -88,7 +89,7 @@ end
 
 local function runCLI()
     cliMod.run()
-    -- if the user types 'exit', CLI closes but server keeps running
+    -- CLI has exited — stay idle so rednet and monitor keep running
     while true do os.sleep(9999) end
 end
 

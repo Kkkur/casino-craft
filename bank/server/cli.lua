@@ -1,5 +1,6 @@
 -- bank/server/cli.lua
--- Admin command-line interface (runs on the computer terminal, not the monitor)
+-- Admin CLI. Output goes through logger.raw so it prints without level/tag prefix.
+-- Prompt is cleared before any print and redrawn after to avoid double-prompt.
 
 local cli = {}
 
@@ -10,21 +11,35 @@ local _ledger   = nil
 local _log      = nil
 local _cfgFile  = "bank_config.json"
 
---  CC-native colour helpers 
--- CC terminals don't support ANSI codes; use term.setTextColor instead.
+local _PROMPT       = "server> "
+local _promptActive = false   -- true while readline is waiting for input
+local _history      = {}
 
-local function cprint(col, msg)
-    term.setTextColor(col)
-    _G.print(msg)
+-- ─── Output ───────────────────────────────────────────────────────────────────
+-- Clears the prompt line, prints, then redraws the prompt.
+-- This prevents double-prompt when logger or other coroutines print mid-input.
+
+local function rawOut(msg, color)
+    if _promptActive then
+        local _, h = term.getSize()
+        term.setCursorPos(1, h)
+        term.clearLine()
+    end
+    term.setTextColor(color or colours.white)
+    print(tostring(msg))
     term.setTextColor(colours.white)
+    if _promptActive then
+        term.setTextColor(colours.white)
+        term.write(_PROMPT)
+    end
 end
 
-local function ok(msg)   cprint(colours.lime,   "[OK] "   .. msg) end
-local function warn(msg) cprint(colours.yellow,  "[WARN] " .. msg) end
-local function err(msg)  cprint(colours.red,     "[ERR] "  .. msg) end
-local function info(msg) cprint(colours.cyan,    "  "      .. msg) end
+local function ok(msg)   rawOut("[OK]  " .. msg, colours.lime)      end
+local function warn(msg) rawOut("[!!!] " .. msg, colours.yellow)    end
+local function err(msg)  rawOut("[ERR] " .. msg, colours.red)       end
+local function info(msg) rawOut("      " .. msg, colours.lightGrey) end
 
---  config helpers 
+-- ─── Config helpers ───────────────────────────────────────────────────────────
 
 local function saveCfg(cfg)
     local f = fs.open(_cfgFile, "w")
@@ -43,55 +58,46 @@ local function loadCfg()
     return data
 end
 
---  command handlers 
+-- ─── Commands ─────────────────────────────────────────────────────────────────
 
 local commands = {}
 
 commands["help"] = {
     desc = "Show this help",
-    usage = "help",
-    run = function(_args)
-        _G.print("")
-        cprint(colours.yellow, "=== Bank Server CLI ===")
+    run  = function(_args)
         local names = {}
         for k in pairs(commands) do table.insert(names, k) end
         table.sort(names)
+        info("=== Bank Server CLI ===")
         for _, name in ipairs(names) do
-            local cmd = commands[name]
-            term.setTextColor(colours.cyan)
-            _G.write(string.format("  %-22s", name))
-            term.setTextColor(colours.white)
-            _G.print(cmd.desc)
+            info(string.format("  %-24s %s", name, commands[name].desc))
         end
-        _G.print("")
     end,
 }
 
 commands["whitelist add"] = {
-    desc  = "Add a computer ID to the whitelist",
-    usage = "whitelist add <computerID>",
-    run = function(args)
+    desc = "Add a computer ID to the whitelist",
+    run  = function(args)
         local id = tonumber(args[1])
-        if not id then err("Usage: whitelist add <computerID>") return end
+        if not id then err("Usage: whitelist add <id>"); return end
         _rednet.addWhitelist(id)
         local cfg = loadCfg()
         if cfg then
             cfg.whitelist = cfg.whitelist or {}
             local found = false
-            for _, v in ipairs(cfg.whitelist) do if v == id then found = true break end end
+            for _, v in ipairs(cfg.whitelist) do if v == id then found = true; break end end
             if not found then table.insert(cfg.whitelist, id) end
             saveCfg(cfg)
         end
-        ok("Computer ID " .. id .. " added to whitelist and saved.")
+        ok("ID " .. id .. " added to whitelist.")
     end,
 }
 
 commands["whitelist remove"] = {
-    desc  = "Remove a computer ID from the whitelist",
-    usage = "whitelist remove <computerID>",
-    run = function(args)
+    desc = "Remove a computer ID from the whitelist",
+    run  = function(args)
         local id = tonumber(args[1])
-        if not id then err("Usage: whitelist remove <computerID>") return end
+        if not id then err("Usage: whitelist remove <id>"); return end
         _rednet.removeWhitelist(id)
         local cfg = loadCfg()
         if cfg and cfg.whitelist then
@@ -100,50 +106,38 @@ commands["whitelist remove"] = {
             cfg.whitelist = new
             saveCfg(cfg)
         end
-        ok("Computer ID " .. id .. " removed from whitelist and saved.")
+        ok("ID " .. id .. " removed from whitelist.")
     end,
 }
 
 commands["whitelist list"] = {
-    desc  = "Show all whitelisted computer IDs",
-    usage = "whitelist list",
-    run = function(_args)
+    desc = "List all whitelisted computer IDs",
+    run  = function(_args)
         local list = _rednet.getWhitelist()
-        if #list == 0 then
-            warn("Whitelist is empty.")
-        else
-            cprint(colours.yellow, "Whitelisted IDs (" .. #list .. "):")
-            table.sort(list)
-            for _, id in ipairs(list) do info(tostring(id)) end
-        end
+        if #list == 0 then warn("Whitelist is empty."); return end
+        table.sort(list)
+        info("Whitelisted IDs (" .. #list .. "):")
+        for _, id in ipairs(list) do info("  " .. tostring(id)) end
     end,
 }
 
 commands["balance"] = {
-    desc  = "Show a player's balance",
-    usage = "balance <player>",
-    run = function(args)
+    desc = "Show a player's balance",
+    run  = function(args)
         local player = args[1]
-        if not player then err("Usage: balance <player>") return end
+        if not player then err("Usage: balance <player>"); return end
         local bal = _profiles.getBalance(player)
-        term.setTextColor(colours.lime)
-        _G.write("[OK] ")
-        term.setTextColor(colours.white)
-        _G.write(player .. " -> ")
-        term.setTextColor(colours.yellow)
-        _G.print(tostring(bal) .. " coins")
-        term.setTextColor(colours.white)
+        ok(player .. " -> " .. tostring(bal) .. " coins")
     end,
 }
 
 commands["give"] = {
-    desc  = "Add coins to a player's balance",
-    usage = "give <player> <amount>",
-    run = function(args)
+    desc = "Add coins to a player's balance",
+    run  = function(args)
         local player = args[1]
         local amount = tonumber(args[2])
         if not player or not amount or amount <= 0 then
-            err("Usage: give <player> <amount>") return
+            err("Usage: give <player> <amount>"); return
         end
         local after = _profiles.add(player, amount)
         _ledger.record(player, "admin_give", amount, after - amount, after)
@@ -152,13 +146,12 @@ commands["give"] = {
 }
 
 commands["take"] = {
-    desc  = "Remove coins from a player's balance",
-    usage = "take <player> <amount>",
-    run = function(args)
+    desc = "Remove coins from a player's balance",
+    run  = function(args)
         local player = args[1]
         local amount = tonumber(args[2])
         if not player or not amount or amount <= 0 then
-            err("Usage: take <player> <amount>") return
+            err("Usage: take <player> <amount>"); return
         end
         local before = _profiles.getBalance(player)
         local after, e = _profiles.remove(player, amount)
@@ -172,225 +165,178 @@ commands["take"] = {
 }
 
 commands["set"] = {
-    desc  = "Set a player's balance to an exact amount",
-    usage = "set <player> <amount>",
-    run = function(args)
+    desc = "Set a player's balance",
+    run  = function(args)
         local player = args[1]
         local amount = tonumber(args[2])
         if not player or not amount or amount < 0 then
-            err("Usage: set <player> <amount>") return
+            err("Usage: set <player> <amount>"); return
         end
         local before = _profiles.getBalance(player)
         _profiles.setBalance(player, amount)
         _ledger.record(player, "admin_set", amount, before, amount)
-        ok("Set " .. player .. " balance to " .. amount .. " (was " .. before .. ")")
+        ok("Set " .. player .. " -> " .. amount .. " (was " .. before .. ")")
     end,
 }
 
 commands["top"] = {
-    desc  = "Show richest players",
-    usage = "top [limit]",
-    run = function(args)
+    desc = "Show richest players",
+    run  = function(args)
         local limit = tonumber(args[1]) or 10
         local list  = _profiles.top(limit)
-        if #list == 0 then warn("No profiles found.") return end
-        cprint(colours.yellow, "Top " .. #list .. " players:")
+        if #list == 0 then warn("No profiles found."); return end
+        info("Top " .. #list .. " players:")
         for i, entry in ipairs(list) do
-            term.setTextColor(colours.white)
-            _G.write(string.format("  %2d. ", i))
-            term.setTextColor(colours.cyan)
-            _G.write(string.format("%-20s", entry.player))
-            term.setTextColor(colours.yellow)
-            _G.print(tostring(entry.balance) .. " coins")
+            info(string.format("  %2d. %-20s %d coins", i, entry.player, entry.balance))
         end
-        term.setTextColor(colours.white)
     end,
 }
 
 commands["vault"] = {
-    desc  = "Show vault coin count and free space",
-    usage = "vault",
-    run = function(_args)
+    desc = "Show vault coin count and free space",
+    run  = function(_args)
         local coins = _vault.coinCount()
         local free  = _vault.freeSpace()
-        ok("Vault coins : " .. coins)
-        ok("Vault free  : " .. free .. " slots")
+        ok("Vault coins: " .. coins)
+        ok("Vault free:  " .. free .. " slots")
     end,
 }
 
 commands["reconcile"] = {
-    desc  = "Run a balance reconciliation check",
-    usage = "reconcile",
-    run = function(_args)
+    desc = "Run a reconciliation check",
+    run  = function(_args)
         local sum           = _profiles.sumAll()
-        local ok2, exp, act = _vault.reconcile(sum)
+        local float         = _rednet.getGameFloat()
+        local ok2, exp, act = _vault.reconcile(sum, float)
         if ok2 then
-            ok("Reconcile OK. Vault=" .. act .. " Profiles=" .. exp)
+            ok("Reconcile OK. vault=" .. act .. " profiles=" .. sum .. " gameFloat=" .. float)
         else
-            err("MISMATCH! Vault=" .. act .. " Profiles=" .. exp .. " Delta=" .. (act - exp))
+            err("MISMATCH! vault=" .. act .. " expected=" .. exp
+                .. " delta=" .. (act - exp)
+                .. " (profiles=" .. sum .. " gameFloat=" .. float .. ")")
             _ledger.recordReconcile(exp, act)
         end
     end,
 }
 
+commands["reconcile reset"] = {
+    desc = "Reset game float (use after adding coins to vault)",
+    run  = function(args)
+        local old   = _rednet.getGameFloat()
+        local value = tonumber(args[1]) or 0
+        _rednet.resetGameFloat(value)
+        _ledger.recordSecurity("RECONCILE_RESET",
+            "gameFloat " .. old .. " -> " .. value .. " by admin")
+        ok("Game float reset: " .. old .. " -> " .. value)
+    end,
+}
+
 commands["alerts"] = {
-    desc  = "Show recent security alerts",
-    usage = "alerts",
-    run = function(_args)
+    desc = "Show recent security alerts",
+    run  = function(_args)
         local list = _rednet.getAlerts()
-        if #list == 0 then
-            ok("No alerts.")
-        else
-            cprint(colours.yellow, "Security Alerts (" .. #list .. "):")
-            for _, a in ipairs(list) do
-                local t = math.floor(a.ts / 1000)
-                term.setTextColor(colours.lightGrey)
-                _G.write("  [" .. t .. "] ")
-                term.setTextColor(colours.red)
-                _G.print(a.msg)
-            end
-            term.setTextColor(colours.white)
+        if #list == 0 then ok("No alerts."); return end
+        info("Security alerts (" .. #list .. "):")
+        for _, a in ipairs(list) do
+            local t = math.floor(a.ts / 1000)
+            info("  [" .. t .. "] " .. a.msg)
         end
     end,
 }
 
 commands["alerts clear"] = {
-    desc  = "Clear all security alerts",
-    usage = "alerts clear",
-    run = function(_args)
+    desc = "Clear all security alerts",
+    run  = function(_args)
         _rednet.clearAlerts()
         ok("Alerts cleared.")
     end,
 }
 
 commands["id"] = {
-    desc  = "Show this computer's ID",
-    usage = "id",
-    run = function(_args)
-        ok("This computer's ID: " .. os.getComputerID())
+    desc = "Show this computer's ID",
+    run  = function(_args)
+        ok("Computer ID: " .. os.getComputerID())
     end,
 }
 
---  sticky prompt 
---
--- The last terminal row is reserved for "server> <input>".
--- We hook _G.print so that whenever the logger or any other coroutine prints,
--- we:  1) clear the prompt row  2) move cursor to row H-1  3) let the print
--- happen (which may scroll)  4) redraw the prompt on the new last row.
---
--- This works regardless of what term object other coroutines hold.
-
-local PROMPT   = "server> "
-local _buf     = {}
-local _history = {}
-local _origPrint = _G.print   -- save before hooking
-
-local function termH() local _, h = term.getSize() return h end
-
-local function clearPromptRow()
-    local h = termH()
-    term.setCursorPos(1, h)
-    term.clearLine()
-end
-
-local function drawPrompt()
-    local h = termH()
-    term.setCursorPos(1, h)
-    term.setTextColor(colours.white)
-    term.write(PROMPT .. table.concat(_buf))
-end
-
--- Hooked print: bounce output above the prompt row, then redraw
-local function hookedPrint(...)
-    clearPromptRow()
-    local h = termH()
-    term.setCursorPos(1, h - 1)
-    _origPrint(...)
-    drawPrompt()
-end
-
-local function installHook()   _G.print = hookedPrint  end
-local function uninstallHook() _G.print = _origPrint   end
-
---  readline 
-
-local KEY_ENTER     = keys.enter
-local KEY_BACKSPACE = keys.backspace
-local KEY_UP        = keys.up
-local KEY_DOWN      = keys.down
+-- ─── Readline ─────────────────────────────────────────────────────────────────
 
 local function readline()
-    _buf = {}
+    local buf     = {}
     local histPos = #_history + 1
 
-    clearPromptRow()
-    drawPrompt()
+    _promptActive = true
+    term.setTextColor(colours.white)
+    term.write(_PROMPT)
     term.setCursorBlink(true)
 
     while true do
         local ev, p1 = os.pullEvent()
 
         if ev == "char" then
-            table.insert(_buf, p1)
-            drawPrompt()
+            table.insert(buf, p1)
+            term.write(p1)
 
         elseif ev == "key" then
-            if p1 == KEY_ENTER then
-                local line = table.concat(_buf)
-                -- echo submitted command into scroll area
-                clearPromptRow()
-                local h = termH()
-                term.setCursorPos(1, h - 1)
-                term.setTextColor(colours.lightGrey)
-                _origPrint(PROMPT .. line)
-                term.setTextColor(colours.white)
-                if line ~= "" then table.insert(_history, line) end
+            if p1 == keys.enter then
+                _promptActive = false
                 term.setCursorBlink(false)
+                print("")
+                local line = table.concat(buf)
+                if line ~= "" then table.insert(_history, line) end
                 return line
 
-            elseif p1 == KEY_BACKSPACE then
-                if #_buf > 0 then
-                    table.remove(_buf)
-                    -- clear trailing char then redraw
-                    local h = termH()
-                    term.setCursorPos(1, h)
-                    term.clearLine()
-                    drawPrompt()
+            elseif p1 == keys.backspace then
+                if #buf > 0 then
+                    table.remove(buf)
+                    local cx, cy = term.getCursorPos()
+                    term.setCursorPos(cx - 1, cy)
+                    term.write(" ")
+                    term.setCursorPos(cx - 1, cy)
                 end
 
-            elseif p1 == KEY_UP then
+            elseif p1 == keys.up then
                 if histPos > 1 then
                     histPos = histPos - 1
-                    _buf = {}
+                    local _, cy = term.getCursorPos()
+                    term.setCursorPos(#_PROMPT + 1, cy)
+                    term.write(string.rep(" ", #buf))
+                    term.setCursorPos(#_PROMPT + 1, cy)
+                    buf = {}
                     for ch in (_history[histPos] or ""):gmatch(".") do
-                        table.insert(_buf, ch)
+                        table.insert(buf, ch)
                     end
-                    clearPromptRow()
-                    drawPrompt()
+                    term.write(table.concat(buf))
                 end
 
-            elseif p1 == KEY_DOWN then
+            elseif p1 == keys.down then
                 histPos = math.min(histPos + 1, #_history + 1)
-                _buf = {}
+                local _, cy = term.getCursorPos()
+                term.setCursorPos(#_PROMPT + 1, cy)
+                term.write(string.rep(" ", #buf))
+                term.setCursorPos(#_PROMPT + 1, cy)
+                buf = {}
                 for ch in (_history[histPos] or ""):gmatch(".") do
-                    table.insert(_buf, ch)
+                    table.insert(buf, ch)
                 end
-                clearPromptRow()
-                drawPrompt()
+                term.write(table.concat(buf))
             end
 
         elseif ev == "term_resize" then
-            clearPromptRow()
-            drawPrompt()
+            local _, h = term.getSize()
+            term.setCursorPos(1, h)
+            term.clearLine()
+            term.write(_PROMPT .. table.concat(buf))
 
         elseif ev == "terminate" then
+            _promptActive = false
             term.setCursorBlink(false)
             return nil
         end
     end
 end
 
---  dispatch 
+-- ─── Dispatch ─────────────────────────────────────────────────────────────────
 
 local function dispatch(line)
     line = line:match("^%s*(.-)%s*$")
@@ -403,7 +349,7 @@ local function dispatch(line)
 
     local first, rest      = line:match("^(%S+)%s*(.*)")
     local second, restrest = (rest or ""):match("^(%S+)%s*(.*)")
-    local twoWord = first and second and (first .. " " .. second)
+    local twoWord          = first and second and (first .. " " .. second)
     local cmd, argStr
 
     if twoWord and commands[twoWord] then
@@ -423,7 +369,7 @@ local function dispatch(line)
     if not ok2 then err("Command error: " .. tostring(e)) end
 end
 
---  public API 
+-- ─── Public API ───────────────────────────────────────────────────────────────
 
 function cli.init(rednetHandler, vaultMod, profilesMod, ledgerMod, logger)
     _rednet   = rednetHandler
@@ -434,22 +380,18 @@ function cli.init(rednetHandler, vaultMod, profilesMod, ledgerMod, logger)
 end
 
 function cli.run()
-    installHook()
-
-    _origPrint("")
-    _origPrint("[ Bank Server CLI ready - type 'help' for commands ]")
-    _origPrint("")
+    if _log then _log.info("CLI ready — type 'help' for commands") end
 
     while true do
         local line = readline()
         if not line then
-            -- terminate signal — keep server running
-        elseif dispatch(line) == "exit" then
-            break
+            if _log then _log.info("CLI terminated.") end
+            return
+        end
+        if dispatch(line) == "exit" then
+            return
         end
     end
-
-    uninstallHook()
 end
 
 return cli
