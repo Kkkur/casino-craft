@@ -89,7 +89,7 @@ function vault.reconcile(profilesSum, gameFloat, coinItem)
     coinItem  = coinItem  or "createdeco:brass_coin"
     gameFloat = gameFloat or 0
     local actual   = vault.coinCount(coinItem)
-    local expected = profilesSum + gameFloat
+    local expected = (tonumber(profilesSum) or 0) + (tonumber(gameFloat) or 0)
     local ok       = (actual == expected)
     if _log and not ok then
         _log.warn("Reconcile FAIL: expected=" .. expected
