@@ -1,6 +1,8 @@
 -- bank/server/cli.lua
--- Admin CLI. Output goes through logger.raw so it prints without level/tag prefix.
--- Prompt is cleared before any print and redrawn after to avoid double-prompt.
+-- Admin CLI for the bank server.
+-- All output goes through rawOut so it appears without level/tag noise.
+-- Tab completion uses libraries/autocomplete.lua with the bank profile.
+-- Terminate signal exits CLI cleanly; init.lua keeps rednet/monitor alive.
 
 local cli = {}
 
@@ -9,15 +11,14 @@ local _vault    = nil
 local _profiles = nil
 local _ledger   = nil
 local _log      = nil
+local _ac       = nil   -- autocomplete module, loaded lazily in init
+
 local _cfgFile  = "bank_config.json"
+local _PROMPT   = "server> "
+local _promptActive = false
+local _history  = {}
 
-local _PROMPT       = "server> "
-local _promptActive = false   -- true while readline is waiting for input
-local _history      = {}
-
--- ─── Output ───────────────────────────────────────────────────────────────────
--- Clears the prompt line, prints, then redraws the prompt.
--- This prevents double-prompt when logger or other coroutines print mid-input.
+-- ── Output ────────────────────────────────────────────────────────────────────
 
 local function rawOut(msg, color)
     if _promptActive then
@@ -29,7 +30,6 @@ local function rawOut(msg, color)
     print(tostring(msg))
     term.setTextColor(colours.white)
     if _promptActive then
-        term.setTextColor(colours.white)
         term.write(_PROMPT)
     end
 end
@@ -39,7 +39,13 @@ local function warn(msg) rawOut("[!!!] " .. msg, colours.yellow)    end
 local function err(msg)  rawOut("[ERR] " .. msg, colours.red)       end
 local function info(msg) rawOut("      " .. msg, colours.lightGrey) end
 
--- ─── Config helpers ───────────────────────────────────────────────────────────
+-- ── Player name normalisation ─────────────────────────────────────────────────
+
+local function norm(player)
+    return player and player:lower() or player
+end
+
+-- ── Config helpers ────────────────────────────────────────────────────────────
 
 local function saveCfg(cfg)
     local f = fs.open(_cfgFile, "w")
@@ -58,7 +64,7 @@ local function loadCfg()
     return data
 end
 
--- ─── Commands ─────────────────────────────────────────────────────────────────
+-- ── Commands ──────────────────────────────────────────────────────────────────
 
 local commands = {}
 
@@ -70,10 +76,12 @@ commands["help"] = {
         table.sort(names)
         info("=== Bank Server CLI ===")
         for _, name in ipairs(names) do
-            info(string.format("  %-24s %s", name, commands[name].desc))
+            info(string.format("  %-26s %s", name, commands[name].desc))
         end
     end,
 }
+
+-- whitelist
 
 commands["whitelist add"] = {
     desc = "Add a computer ID to the whitelist",
@@ -121,20 +129,23 @@ commands["whitelist list"] = {
     end,
 }
 
+-- balance / give / take / set
+
 commands["balance"] = {
-    desc = "Show a player's balance",
+    desc = "Show a player's balance  (alias: bal)",
     run  = function(args)
-        local player = args[1]
+        local player = norm(args[1])
         if not player then err("Usage: balance <player>"); return end
         local bal = _profiles.getBalance(player)
         ok(player .. " -> " .. tostring(bal) .. " coins")
     end,
 }
+commands["bal"] = commands["balance"]
 
 commands["give"] = {
     desc = "Add coins to a player's balance",
     run  = function(args)
-        local player = args[1]
+        local player = norm(args[1])
         local amount = tonumber(args[2])
         if not player or not amount or amount <= 0 then
             err("Usage: give <player> <amount>"); return
@@ -148,7 +159,7 @@ commands["give"] = {
 commands["take"] = {
     desc = "Remove coins from a player's balance",
     run  = function(args)
-        local player = args[1]
+        local player = norm(args[1])
         local amount = tonumber(args[2])
         if not player or not amount or amount <= 0 then
             err("Usage: take <player> <amount>"); return
@@ -167,7 +178,7 @@ commands["take"] = {
 commands["set"] = {
     desc = "Set a player's balance",
     run  = function(args)
-        local player = args[1]
+        local player = norm(args[1])
         local amount = tonumber(args[2])
         if not player or not amount or amount < 0 then
             err("Usage: set <player> <amount>"); return
@@ -178,6 +189,66 @@ commands["set"] = {
         ok("Set " .. player .. " -> " .. amount .. " (was " .. before .. ")")
     end,
 }
+
+-- account management
+
+commands["account add"] = {
+    desc = "Create a player account with zero balance",
+    run  = function(args)
+        local player = norm(args[1])
+        if not player then err("Usage: account add <player>"); return end
+        _profiles.get(player)   -- creates if absent
+        ok("Account created: " .. player)
+    end,
+}
+
+commands["account remove"] = {
+    desc = "Delete a player account permanently",
+    run  = function(args)
+        local player = norm(args[1])
+        if not player then err("Usage: account remove <player>"); return end
+        local bal = _profiles.getBalance(player)
+        if bal > 0 then
+            warn("Player has " .. bal .. " coins. Use 'account remove " .. player .. " confirm' to force.")
+            if norm(args[2]) ~= "confirm" then return end
+        end
+        local success, reason = _profiles.delete(player)
+        if success then
+            _ledger.record(player, "admin_delete", nil, bal, nil)
+            ok("Account deleted: " .. player)
+        else
+            err("Delete failed: " .. tostring(reason))
+        end
+    end,
+}
+
+commands["account list"] = {
+    desc = "List all player accounts",
+    run  = function(_args)
+        local names = _profiles.list()
+        if #names == 0 then warn("No accounts found."); return end
+        info("Accounts (" .. #names .. "):")
+        for _, name in ipairs(names) do
+            local bal = _profiles.getBalance(name)
+            info(string.format("  %-20s %d coins", name, bal))
+        end
+    end,
+}
+
+commands["account flush"] = {
+    desc = "Delete ALL player accounts (irreversible)",
+    run  = function(args)
+        if norm(args[1]) ~= "confirm" then
+            warn("This will wipe every account. Type: account flush confirm")
+            return
+        end
+        local count = _profiles.flush()
+        _ledger.record("SERVER", "admin_flush", nil, nil, nil)
+        ok("Flushed " .. count .. " accounts.")
+    end,
+}
+
+-- leaderboard
 
 commands["top"] = {
     desc = "Show richest players",
@@ -192,6 +263,8 @@ commands["top"] = {
     end,
 }
 
+-- vault
+
 commands["vault"] = {
     desc = "Show vault coin count and free space",
     run  = function(_args)
@@ -202,12 +275,14 @@ commands["vault"] = {
     end,
 }
 
+-- reconcile
+
 commands["reconcile"] = {
     desc = "Run a reconciliation check",
     run  = function(_args)
-        local sum           = _profiles.sumAll()
-        local float         = _rednet.getGameFloat()
-        local ok2, exp, act = _vault.reconcile(sum, float)
+        local sum            = _profiles.sumAll()
+        local float          = _rednet.getGameFloat()
+        local ok2, exp, act  = _vault.reconcile(sum, float)
         if ok2 then
             ok("Reconcile OK. vault=" .. act .. " profiles=" .. sum .. " gameFloat=" .. float)
         else
@@ -220,7 +295,7 @@ commands["reconcile"] = {
 }
 
 commands["reconcile reset"] = {
-    desc = "Reset game float (use after adding coins to vault)",
+    desc = "Reset game float to 0 (or a given value)",
     run  = function(args)
         local old   = _rednet.getGameFloat()
         local value = tonumber(args[1]) or 0
@@ -230,6 +305,8 @@ commands["reconcile reset"] = {
         ok("Game float reset: " .. old .. " -> " .. value)
     end,
 }
+
+-- security alerts
 
 commands["alerts"] = {
     desc = "Show recent security alerts",
@@ -252,6 +329,8 @@ commands["alerts clear"] = {
     end,
 }
 
+-- misc
+
 commands["id"] = {
     desc = "Show this computer's ID",
     run  = function(_args)
@@ -259,7 +338,32 @@ commands["id"] = {
     end,
 }
 
--- ─── Readline ─────────────────────────────────────────────────────────────────
+-- ── Autocomplete profile ──────────────────────────────────────────────────────
+
+local function buildACProfile()
+    local cmdNames = {}
+    for k in pairs(commands) do table.insert(cmdNames, k) end
+
+    -- player name resolver: reads profiles list
+    local function playerNames(_argIndex)
+        local ok2, names = pcall(function() return _profiles.list() end)
+        return ok2 and names or {}
+    end
+
+    -- commands that take a player name as their first argument
+    local playerCmds = {
+        "balance", "bal", "give", "take", "set",
+        "account add", "account remove",
+    }
+    local resolvers = {}
+    for _, cmd in ipairs(playerCmds) do
+        resolvers[cmd] = playerNames
+    end
+
+    return { commands = cmdNames, resolvers = resolvers }
+end
+
+-- ── Readline ──────────────────────────────────────────────────────────────────
 
 local function readline()
     local buf     = {}
@@ -285,6 +389,24 @@ local function readline()
                 local line = table.concat(buf)
                 if line ~= "" then table.insert(_history, line) end
                 return line
+
+            elseif p1 == keys.tab then
+                if _ac then
+                    local input     = table.concat(buf)
+                    local completed = _ac.complete(input)
+                    if completed ~= input then
+                        -- redraw the input line with the completed text
+                        local _, cy = term.getCursorPos()
+                        term.setCursorPos(#_PROMPT + 1, cy)
+                        term.write(string.rep(" ", #buf))
+                        term.setCursorPos(#_PROMPT + 1, cy)
+                        buf = {}
+                        for ch in completed:gmatch(".") do
+                            table.insert(buf, ch)
+                        end
+                        term.write(completed)
+                    end
+                end
 
             elseif p1 == keys.backspace then
                 if #buf > 0 then
@@ -336,7 +458,7 @@ local function readline()
     end
 end
 
--- ─── Dispatch ─────────────────────────────────────────────────────────────────
+-- ── Dispatch ──────────────────────────────────────────────────────────────────
 
 local function dispatch(line)
     line = line:match("^%s*(.-)%s*$")
@@ -369,7 +491,7 @@ local function dispatch(line)
     if not ok2 then err("Command error: " .. tostring(e)) end
 end
 
--- ─── Public API ───────────────────────────────────────────────────────────────
+-- ── Public API ────────────────────────────────────────────────────────────────
 
 function cli.init(rednetHandler, vaultMod, profilesMod, ledgerMod, logger)
     _rednet   = rednetHandler
@@ -377,14 +499,22 @@ function cli.init(rednetHandler, vaultMod, profilesMod, ledgerMod, logger)
     _profiles = profilesMod
     _ledger   = ledgerMod
     _log      = logger
+
+    -- load autocomplete; soft-fail so CLI still works if file is absent
+    local ok2, ac = pcall(dofile, "/libraries/autocomplete.lua")
+    if ok2 and ac then
+        _ac = ac
+        _ac.init(buildACProfile())
+    end
 end
 
 function cli.run()
-    if _log then _log.info("CLI ready — type 'help' for commands") end
+    if _log then _log.info("CLI ready. Type 'help' for commands. Tab to autocomplete.") end
 
     while true do
         local line = readline()
         if not line then
+            -- terminate received: exit cleanly, let init.lua keep the server alive
             if _log then _log.info("CLI terminated.") end
             return
         end

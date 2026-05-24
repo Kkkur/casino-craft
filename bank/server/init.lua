@@ -89,8 +89,7 @@ end
 
 local function runCLI()
     cliMod.run()
-    -- CLI has exited — stay idle so rednet and monitor keep running
-    while true do os.sleep(9999) end
+    -- CLI exited cleanly; rednet and monitor continue via waitForAll
 end
 
 parallel.waitForAll(runRednet, runMonitor, runCLI)

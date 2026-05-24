@@ -57,6 +57,12 @@ function rednetHandler.getWhitelist()
     return list
 end
 
+function rednetHandler.getGameFloat() return _gameFloat end
+
+function rednetHandler.resetGameFloat(value)
+    _gameFloat = value or 0
+end
+
 function rednetHandler.getAlerts() return _alerts end
 
 function rednetHandler.clearAlerts()
