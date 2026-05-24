@@ -278,7 +278,7 @@ local function doSpin(player)
   lastWin = 0
 
   -- deduct immediately
-  local newBal, err = bank.remove(player, bet)
+  local newBal, err = bank.remove(player, bet, "game")
   if not newBal then
     spinning = false
     setFeedback(err == "insufficient" and "Insufficient credits!" or "Bank error!", colors.red)
@@ -323,7 +323,7 @@ local function doSpin(player)
   end
 
   if win > 0 then
-    local newBal = bank.add(player, win)
+    local newBal = bank.add(player, win, "game")
     cachedCredits = newBal or (cachedCredits + win)
     lastWin  = win
     totalWon = totalWon + win

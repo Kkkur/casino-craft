@@ -101,14 +101,19 @@ function profiles.flush()
     return count
 end
 
--- list all player names
+-- list all player names, normalized to lowercase
 function profiles.list()
     ensureDir()
     local list = fs.list(PROFILES_DIR)
+    local seen = {}
     local names = {}
     for _, fname in ipairs(list) do
         if fname:match("%.json$") then
-            table.insert(names, fname:gsub("%.json$", ""))
+            local name = normalize(fname:gsub("%.json$", ""))
+            if not seen[name] then
+                seen[name] = true
+                table.insert(names, name)
+            end
         end
     end
     table.sort(names)

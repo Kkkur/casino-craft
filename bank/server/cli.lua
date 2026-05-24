@@ -1,8 +1,9 @@
 -- bank/server/cli.lua
 -- Admin CLI for the bank server.
--- All output goes through rawOut so it appears without level/tag noise.
--- Tab completion uses libraries/autocomplete.lua with the bank profile.
--- Terminate signal exits CLI cleanly; init.lua keeps rednet/monitor alive.
+-- Output goes through rawOut without level/tag prefix.
+-- Tab completion with ghost text via libraries/autocomplete.lua.
+-- Ctrl+Backspace deletes the last word.
+-- Terminate exits CLI cleanly; rednet and monitor keep running.
 
 local cli = {}
 
@@ -11,14 +12,30 @@ local _vault    = nil
 local _profiles = nil
 local _ledger   = nil
 local _log      = nil
-local _ac       = nil   -- autocomplete module, loaded lazily in init
+local _ac       = nil
 
-local _cfgFile  = "bank_config.json"
-local _PROMPT   = "server> "
+local _cfgFile      = "bank_config.json"
+local _PROMPT       = "server> "
 local _promptActive = false
-local _history  = {}
+local _history      = {}
 
 --  Output 
+-- When the prompt is active, any print must:
+--   1. Go to the last line, clear it
+--   2. Print the message (scrolls terminal up)
+--   3. Redraw the prompt + current buffer contents + ghost text
+-- This keeps the input line visible and correct after every log message.
+
+local _currentBuf = {}   -- mirror of readline's buf, kept in sync for rawOut
+
+local function redrawPrompt()
+    local _, h = term.getSize()
+    term.setCursorPos(1, h)
+    term.clearLine()
+    term.setTextColor(colours.white)
+    term.write(_PROMPT .. table.concat(_currentBuf))
+    if _ac then _ac.preview(table.concat(_currentBuf), colours.grey) end
+end
 
 local function rawOut(msg, color)
     if _promptActive then
@@ -30,7 +47,7 @@ local function rawOut(msg, color)
     print(tostring(msg))
     term.setTextColor(colours.white)
     if _promptActive then
-        term.write(_PROMPT)
+        redrawPrompt()
     end
 end
 
@@ -129,18 +146,17 @@ commands["whitelist list"] = {
     end,
 }
 
--- balance / give / take / set
+-- bal / give / take / set
 
-commands["balance"] = {
-    desc = "Show a player's balance  (alias: bal)",
+commands["bal"] = {
+    desc = "Show a player's balance",
     run  = function(args)
         local player = norm(args[1])
-        if not player then err("Usage: balance <player>"); return end
+        if not player then err("Usage: bal <player>"); return end
         local bal = _profiles.getBalance(player)
-        ok(player .. " -> " .. tostring(bal) .. " coins")
+        ok(player .. " -> " .. tostring(math.floor(bal)) .. " coins")
     end,
 }
-commands["bal"] = commands["balance"]
 
 commands["give"] = {
     desc = "Add coins to a player's balance",
@@ -152,7 +168,7 @@ commands["give"] = {
         end
         local after = _profiles.add(player, amount)
         _ledger.record(player, "admin_give", amount, after - amount, after)
-        ok("Gave " .. amount .. " coins to " .. player .. ". Balance: " .. after)
+        ok("Gave " .. amount .. " to " .. player .. ". Balance: " .. math.floor(after))
     end,
 }
 
@@ -167,10 +183,10 @@ commands["take"] = {
         local before = _profiles.getBalance(player)
         local after, e = _profiles.remove(player, amount)
         if not after then
-            err("Failed: " .. tostring(e) .. " (balance=" .. before .. ")")
+            err("Failed: " .. tostring(e) .. " (balance=" .. math.floor(before) .. ")")
         else
             _ledger.record(player, "admin_take", amount, before, after)
-            ok("Took " .. amount .. " coins from " .. player .. ". Balance: " .. after)
+            ok("Took " .. amount .. " from " .. player .. ". Balance: " .. math.floor(after))
         end
     end,
 }
@@ -186,7 +202,7 @@ commands["set"] = {
         local before = _profiles.getBalance(player)
         _profiles.setBalance(player, amount)
         _ledger.record(player, "admin_set", amount, before, amount)
-        ok("Set " .. player .. " -> " .. amount .. " (was " .. before .. ")")
+        ok("Set " .. player .. " -> " .. amount .. " (was " .. math.floor(before) .. ")")
     end,
 }
 
@@ -197,7 +213,7 @@ commands["account add"] = {
     run  = function(args)
         local player = norm(args[1])
         if not player then err("Usage: account add <player>"); return end
-        _profiles.get(player)   -- creates if absent
+        _profiles.get(player)
         ok("Account created: " .. player)
     end,
 }
@@ -209,7 +225,7 @@ commands["account remove"] = {
         if not player then err("Usage: account remove <player>"); return end
         local bal = _profiles.getBalance(player)
         if bal > 0 then
-            warn("Player has " .. bal .. " coins. Use 'account remove " .. player .. " confirm' to force.")
+            warn("Player has " .. math.floor(bal) .. " coins. Use 'account remove " .. player .. " confirm' to force.")
             if norm(args[2]) ~= "confirm" then return end
         end
         local success, reason = _profiles.delete(player)
@@ -230,13 +246,13 @@ commands["account list"] = {
         info("Accounts (" .. #names .. "):")
         for _, name in ipairs(names) do
             local bal = _profiles.getBalance(name)
-            info(string.format("  %-20s %d coins", name, bal))
+            info(string.format("  %-20s %s coins", name, tostring(math.floor(bal))))
         end
     end,
 }
 
 commands["account flush"] = {
-    desc = "Delete ALL player accounts (irreversible)",
+    desc = "Delete ALL player accounts (irreversible — requires 'confirm')",
     run  = function(args)
         if norm(args[1]) ~= "confirm" then
             warn("This will wipe every account. Type: account flush confirm")
@@ -251,14 +267,14 @@ commands["account flush"] = {
 -- leaderboard
 
 commands["top"] = {
-    desc = "Show richest players",
+    desc = "Show richest players  (optional: top <limit>)",
     run  = function(args)
         local limit = tonumber(args[1]) or 10
         local list  = _profiles.top(limit)
         if #list == 0 then warn("No profiles found."); return end
         info("Top " .. #list .. " players:")
         for i, entry in ipairs(list) do
-            info(string.format("  %2d. %-20s %d coins", i, entry.player, entry.balance))
+            info(string.format("  %2d. %-20s %s coins", i, entry.player, tostring(math.floor(entry.balance))))
         end
     end,
 }
@@ -280,9 +296,9 @@ commands["vault"] = {
 commands["reconcile"] = {
     desc = "Run a reconciliation check",
     run  = function(_args)
-        local sum            = _profiles.sumAll()
-        local float          = _rednet.getGameFloat()
-        local ok2, exp, act  = _vault.reconcile(sum, float)
+        local sum           = _profiles.sumAll()
+        local float         = _rednet.getGameFloat()
+        local ok2, exp, act = _vault.reconcile(sum, float)
         if ok2 then
             ok("Reconcile OK. vault=" .. act .. " profiles=" .. sum .. " gameFloat=" .. float)
         else
@@ -300,19 +316,18 @@ commands["reconcile fix"] = {
         local sum      = _profiles.sumAll()
         local actual   = _vault.coinCount()
         local oldFloat = _rednet.getGameFloat()
-        -- vault = profilesSum + gameFloat  =>  gameFloat = vault - profilesSum
-        local newFloat = actual - sum
+        local newFloat = actual - sum   -- vault = profiles + gameFloat
         _rednet.resetGameFloat(newFloat)
         _ledger.recordSecurity("RECONCILE_FIX",
             "gameFloat " .. oldFloat .. " -> " .. newFloat
             .. " (vault=" .. actual .. " profiles=" .. sum .. ")")
-        ok("Reconcile fixed. vault=" .. actual .. " profiles=" .. sum
+        ok("Fixed. vault=" .. actual .. " profiles=" .. sum
             .. " gameFloat: " .. oldFloat .. " -> " .. newFloat)
     end,
 }
 
 commands["reconcile reset"] = {
-    desc = "Reset game float to 0 (or a given value)",
+    desc = "Force gameFloat to a specific value (default 0)",
     run  = function(args)
         local old   = _rednet.getGameFloat()
         local value = tonumber(args[1]) or 0
@@ -358,11 +373,8 @@ commands["id"] = {
 --  Autocomplete profile 
 
 local function buildACProfile()
-    -- full command name list including two-word commands
     local cmdNames = {}
     for k in pairs(commands) do table.insert(cmdNames, k) end
-
-    -- resolvers
 
     local function playerNames(_argIndex)
         local ok2, names = pcall(function() return _profiles.list() end)
@@ -378,16 +390,12 @@ local function buildACProfile()
     end
 
     local resolvers = {
-        -- single-word commands
-        ["balance"]          = playerNames,
         ["bal"]              = playerNames,
         ["give"]             = playerNames,
         ["take"]             = playerNames,
         ["set"]              = playerNames,
-        -- two-word commands with player arg
         ["account add"]      = playerNames,
         ["account remove"]   = playerNames,
-        -- whitelist ID completion
         ["whitelist remove"] = whitelistIDs,
     }
 
@@ -399,25 +407,42 @@ end
 local function readline()
     local buf     = {}
     local histPos = #_history + 1
+    local ctrlHeld = false
 
+    _currentBuf   = buf
     _promptActive = true
     term.setTextColor(colours.white)
     term.write(_PROMPT)
     term.setCursorBlink(true)
 
-    local function redrawBuf(newBuf)
+    -- Redraw the entire input line from the prompt position.
+    local function redrawLine()
         local _, cy = term.getCursorPos()
+        local w, _  = term.getSize()
         term.setCursorPos(#_PROMPT + 1, cy)
-        -- clear the whole line from prompt onwards (buf + any old ghost text)
-        local w = term.getSize()
         term.write(string.rep(" ", w - #_PROMPT))
         term.setCursorPos(#_PROMPT + 1, cy)
-        term.write(table.concat(newBuf))
-        buf = newBuf
+        term.write(table.concat(buf))
         if _ac then _ac.preview(table.concat(buf), colours.grey) end
     end
 
-    -- initial ghost text
+    local function setBuf(newBuf)
+        buf = newBuf
+        _currentBuf = buf
+        redrawLine()
+    end
+
+    -- Delete last word (Ctrl+Backspace behaviour).
+    local function deleteWord()
+        if #buf == 0 then return end
+        -- strip trailing spaces
+        while #buf > 0 and buf[#buf] == " " do table.remove(buf) end
+        -- strip last word
+        while #buf > 0 and buf[#buf] ~= " " do table.remove(buf) end
+        _currentBuf = buf
+        redrawLine()
+    end
+
     if _ac then _ac.preview("", colours.grey) end
 
     while true do
@@ -426,11 +451,16 @@ local function readline()
         if ev == "char" then
             if _ac then _ac.clearPreview() end
             table.insert(buf, p1)
+            _currentBuf = buf
             term.write(p1)
             if _ac then _ac.preview(table.concat(buf), colours.grey) end
 
         elseif ev == "key" then
-            if p1 == keys.enter then
+            -- track ctrl held state
+            if p1 == keys.leftCtrl or p1 == keys.rightCtrl then
+                ctrlHeld = true
+
+            elseif p1 == keys.enter then
                 if _ac then _ac.clearPreview() end
                 _promptActive = false
                 term.setCursorBlink(false)
@@ -446,19 +476,21 @@ local function readline()
                     local completed = _ac.complete(input)
                     if completed ~= input then
                         local newBuf = {}
-                        for ch in completed:gmatch(".") do
-                            table.insert(newBuf, ch)
-                        end
-                        redrawBuf(newBuf)
+                        for ch in completed:gmatch(".") do table.insert(newBuf, ch) end
+                        setBuf(newBuf)
                     else
                         _ac.preview(input, colours.grey)
                     end
                 end
 
             elseif p1 == keys.backspace then
-                if #buf > 0 then
+                if ctrlHeld then
+                    if _ac then _ac.clearPreview() end
+                    deleteWord()
+                elseif #buf > 0 then
                     if _ac then _ac.clearPreview() end
                     table.remove(buf)
+                    _currentBuf = buf
                     local cx, cy = term.getCursorPos()
                     term.setCursorPos(cx - 1, cy)
                     term.write(" ")
@@ -473,7 +505,7 @@ local function readline()
                     for ch in (_history[histPos] or ""):gmatch(".") do
                         table.insert(newBuf, ch)
                     end
-                    redrawBuf(newBuf)
+                    setBuf(newBuf)
                 end
 
             elseif p1 == keys.down then
@@ -482,7 +514,12 @@ local function readline()
                 for ch in (_history[histPos] or ""):gmatch(".") do
                     table.insert(newBuf, ch)
                 end
-                redrawBuf(newBuf)
+                setBuf(newBuf)
+            end
+
+        elseif ev == "key_up" then
+            if p1 == keys.leftCtrl or p1 == keys.rightCtrl then
+                ctrlHeld = false
             end
 
         elseif ev == "term_resize" then
@@ -544,7 +581,6 @@ function cli.init(rednetHandler, vaultMod, profilesMod, ledgerMod, logger)
     _ledger   = ledgerMod
     _log      = logger
 
-    -- load autocomplete; soft-fail so CLI still works if file is absent
     local ok2, ac = pcall(dofile, "/libraries/autocomplete.lua")
     if ok2 and ac then
         _ac = ac
@@ -558,13 +594,10 @@ function cli.run()
     while true do
         local line = readline()
         if not line then
-            -- terminate received: exit cleanly, let init.lua keep the server alive
             if _log then _log.info("CLI terminated.") end
             return
         end
-        if dispatch(line) == "exit" then
-            return
-        end
+        if dispatch(line) == "exit" then return end
     end
 end
 

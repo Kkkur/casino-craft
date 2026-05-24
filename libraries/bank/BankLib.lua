@@ -123,10 +123,10 @@ function bank.ping()
     return reply ~= nil and reply.ok == true
 end
 
--- All mutating transactions tag source="game" so the server can
--- distinguish ledger-only game transactions from physical ATM coin movements.
-local function transaction(msg)
-    msg.source = "game"
+-- source: "atm" for physical coin movements, "game" for ledger-only game transactions.
+-- Only "game" transactions affect gameFloat on the server.
+local function transaction(msg, source)
+    msg.source = source or "atm"
     if not _ready then
         log("warn", "transaction called before bank.connect()")
         local ok, e = bank.connect()
@@ -169,20 +169,20 @@ function bank.getBalance(player)
     return reply.balance
 end
 
-function bank.add(player, amount)
-    local reply, err = transaction({ action = "add", player = player, amount = amount })
+function bank.add(player, amount, source)
+    local reply, err = transaction({ action = "add", player = player, amount = amount }, source)
     if not reply then return nil, err end
     return reply.balance
 end
 
-function bank.remove(player, amount)
-    local reply, err = transaction({ action = "remove", player = player, amount = amount })
+function bank.remove(player, amount, source)
+    local reply, err = transaction({ action = "remove", player = player, amount = amount }, source)
     if not reply then return nil, err end
     return reply.balance
 end
 
-function bank.set(player, amount)
-    local reply, err = transaction({ action = "set", player = player, amount = amount })
+function bank.set(player, amount, source)
+    local reply, err = transaction({ action = "set", player = player, amount = amount }, source)
     if not reply then return nil, err end
     return reply.balance
 end
