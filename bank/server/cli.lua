@@ -18,7 +18,7 @@ local _PROMPT   = "server> "
 local _promptActive = false
 local _history  = {}
 
--- ── Output ────────────────────────────────────────────────────────────────────
+--  Output 
 
 local function rawOut(msg, color)
     if _promptActive then
@@ -39,13 +39,13 @@ local function warn(msg) rawOut("[!!!] " .. msg, colours.yellow)    end
 local function err(msg)  rawOut("[ERR] " .. msg, colours.red)       end
 local function info(msg) rawOut("      " .. msg, colours.lightGrey) end
 
--- ── Player name normalisation ─────────────────────────────────────────────────
+--  Player name normalisation 
 
 local function norm(player)
     return player and player:lower() or player
 end
 
--- ── Config helpers ────────────────────────────────────────────────────────────
+--  Config helpers 
 
 local function saveCfg(cfg)
     local f = fs.open(_cfgFile, "w")
@@ -64,7 +64,7 @@ local function loadCfg()
     return data
 end
 
--- ── Commands ──────────────────────────────────────────────────────────────────
+--  Commands 
 
 local commands = {}
 
@@ -294,6 +294,23 @@ commands["reconcile"] = {
     end,
 }
 
+commands["reconcile fix"] = {
+    desc = "Adjust gameFloat so vault matches reality (use after manual coin changes)",
+    run  = function(_args)
+        local sum      = _profiles.sumAll()
+        local actual   = _vault.coinCount()
+        local oldFloat = _rednet.getGameFloat()
+        -- vault = profilesSum + gameFloat  =>  gameFloat = vault - profilesSum
+        local newFloat = actual - sum
+        _rednet.resetGameFloat(newFloat)
+        _ledger.recordSecurity("RECONCILE_FIX",
+            "gameFloat " .. oldFloat .. " -> " .. newFloat
+            .. " (vault=" .. actual .. " profiles=" .. sum .. ")")
+        ok("Reconcile fixed. vault=" .. actual .. " profiles=" .. sum
+            .. " gameFloat: " .. oldFloat .. " -> " .. newFloat)
+    end,
+}
+
 commands["reconcile reset"] = {
     desc = "Reset game float to 0 (or a given value)",
     run  = function(args)
@@ -338,32 +355,46 @@ commands["id"] = {
     end,
 }
 
--- ── Autocomplete profile ──────────────────────────────────────────────────────
+--  Autocomplete profile 
 
 local function buildACProfile()
+    -- full command name list including two-word commands
     local cmdNames = {}
     for k in pairs(commands) do table.insert(cmdNames, k) end
 
-    -- player name resolver: reads profiles list
+    -- resolvers
+
     local function playerNames(_argIndex)
         local ok2, names = pcall(function() return _profiles.list() end)
         return ok2 and names or {}
     end
 
-    -- commands that take a player name as their first argument
-    local playerCmds = {
-        "balance", "bal", "give", "take", "set",
-        "account add", "account remove",
-    }
-    local resolvers = {}
-    for _, cmd in ipairs(playerCmds) do
-        resolvers[cmd] = playerNames
+    local function whitelistIDs(_argIndex)
+        local ok2, list = pcall(function() return _rednet.getWhitelist() end)
+        if not ok2 then return {} end
+        local strs = {}
+        for _, id in ipairs(list) do table.insert(strs, tostring(id)) end
+        return strs
     end
 
-    return { commands = cmdNames, resolvers = resolvers }
+    local resolvers = {
+        -- single-word commands
+        ["balance"]          = playerNames,
+        ["bal"]              = playerNames,
+        ["give"]             = playerNames,
+        ["take"]             = playerNames,
+        ["set"]              = playerNames,
+        -- two-word commands with player arg
+        ["account add"]      = playerNames,
+        ["account remove"]   = playerNames,
+        -- whitelist ID completion
+        ["whitelist remove"] = whitelistIDs,
+    }
+
+    return { commands = cmdNames, resolvers = resolvers, hintColor = colours.grey }
 end
 
--- ── Readline ──────────────────────────────────────────────────────────────────
+--  Readline 
 
 local function readline()
     local buf     = {}
@@ -374,15 +405,33 @@ local function readline()
     term.write(_PROMPT)
     term.setCursorBlink(true)
 
+    local function redrawBuf(newBuf)
+        local _, cy = term.getCursorPos()
+        term.setCursorPos(#_PROMPT + 1, cy)
+        -- clear the whole line from prompt onwards (buf + any old ghost text)
+        local w = term.getSize()
+        term.write(string.rep(" ", w - #_PROMPT))
+        term.setCursorPos(#_PROMPT + 1, cy)
+        term.write(table.concat(newBuf))
+        buf = newBuf
+        if _ac then _ac.preview(table.concat(buf), colours.grey) end
+    end
+
+    -- initial ghost text
+    if _ac then _ac.preview("", colours.grey) end
+
     while true do
         local ev, p1 = os.pullEvent()
 
         if ev == "char" then
+            if _ac then _ac.clearPreview() end
             table.insert(buf, p1)
             term.write(p1)
+            if _ac then _ac.preview(table.concat(buf), colours.grey) end
 
         elseif ev == "key" then
             if p1 == keys.enter then
+                if _ac then _ac.clearPreview() end
                 _promptActive = false
                 term.setCursorBlink(false)
                 print("")
@@ -392,65 +441,60 @@ local function readline()
 
             elseif p1 == keys.tab then
                 if _ac then
+                    _ac.clearPreview()
                     local input     = table.concat(buf)
                     local completed = _ac.complete(input)
                     if completed ~= input then
-                        -- redraw the input line with the completed text
-                        local _, cy = term.getCursorPos()
-                        term.setCursorPos(#_PROMPT + 1, cy)
-                        term.write(string.rep(" ", #buf))
-                        term.setCursorPos(#_PROMPT + 1, cy)
-                        buf = {}
+                        local newBuf = {}
                         for ch in completed:gmatch(".") do
-                            table.insert(buf, ch)
+                            table.insert(newBuf, ch)
                         end
-                        term.write(completed)
+                        redrawBuf(newBuf)
+                    else
+                        _ac.preview(input, colours.grey)
                     end
                 end
 
             elseif p1 == keys.backspace then
                 if #buf > 0 then
+                    if _ac then _ac.clearPreview() end
                     table.remove(buf)
                     local cx, cy = term.getCursorPos()
                     term.setCursorPos(cx - 1, cy)
                     term.write(" ")
                     term.setCursorPos(cx - 1, cy)
+                    if _ac then _ac.preview(table.concat(buf), colours.grey) end
                 end
 
             elseif p1 == keys.up then
                 if histPos > 1 then
                     histPos = histPos - 1
-                    local _, cy = term.getCursorPos()
-                    term.setCursorPos(#_PROMPT + 1, cy)
-                    term.write(string.rep(" ", #buf))
-                    term.setCursorPos(#_PROMPT + 1, cy)
-                    buf = {}
+                    local newBuf = {}
                     for ch in (_history[histPos] or ""):gmatch(".") do
-                        table.insert(buf, ch)
+                        table.insert(newBuf, ch)
                     end
-                    term.write(table.concat(buf))
+                    redrawBuf(newBuf)
                 end
 
             elseif p1 == keys.down then
                 histPos = math.min(histPos + 1, #_history + 1)
-                local _, cy = term.getCursorPos()
-                term.setCursorPos(#_PROMPT + 1, cy)
-                term.write(string.rep(" ", #buf))
-                term.setCursorPos(#_PROMPT + 1, cy)
-                buf = {}
+                local newBuf = {}
                 for ch in (_history[histPos] or ""):gmatch(".") do
-                    table.insert(buf, ch)
+                    table.insert(newBuf, ch)
                 end
-                term.write(table.concat(buf))
+                redrawBuf(newBuf)
             end
 
         elseif ev == "term_resize" then
+            if _ac then _ac.clearPreview() end
             local _, h = term.getSize()
             term.setCursorPos(1, h)
             term.clearLine()
             term.write(_PROMPT .. table.concat(buf))
+            if _ac then _ac.preview(table.concat(buf), colours.grey) end
 
         elseif ev == "terminate" then
+            if _ac then _ac.clearPreview() end
             _promptActive = false
             term.setCursorBlink(false)
             return nil
@@ -458,7 +502,7 @@ local function readline()
     end
 end
 
--- ── Dispatch ──────────────────────────────────────────────────────────────────
+--  Dispatch 
 
 local function dispatch(line)
     line = line:match("^%s*(.-)%s*$")
@@ -491,7 +535,7 @@ local function dispatch(line)
     if not ok2 then err("Command error: " .. tostring(e)) end
 end
 
--- ── Public API ────────────────────────────────────────────────────────────────
+--  Public API 
 
 function cli.init(rednetHandler, vaultMod, profilesMod, ledgerMod, logger)
     _rednet   = rednetHandler

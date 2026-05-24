@@ -41,7 +41,7 @@ local GAME_TYPES = {
     },
 }
 
--- ─── Config ───────────────────────────────────────────────────────────────────
+--  Config 
 
 local function loadConfig()
     if not fs.exists(CONFIG_FILE) then return {} end
@@ -66,7 +66,7 @@ local function saveConfig(cfg)
     return true
 end
 
--- ─── Bank config ─────────────────────────────────────────────────────────────
+--  Bank config 
 
 local BANK_CONFIG_FILE = "bank_config.json"
 
@@ -88,7 +88,7 @@ local function saveBankConfig(cfg)
     return true
 end
 
--- ─── UI helpers ───────────────────────────────────────────────────────────────
+--  UI helpers 
 
 local function clear()
     term.setBackgroundColor(colours.black)
@@ -166,7 +166,7 @@ local function bankSetup(savedBank, modemSide)
     return cfg
 end
 
--- ─── HTTP download ────────────────────────────────────────────────────────────
+--  HTTP download 
 
 local function downloadFile(filename, silent)
     local url = BASE_URL .. filename
@@ -229,7 +229,7 @@ local function downloadAll(files, silent)
     return failed
 end
 
--- ─── Peripheral detection ─────────────────────────────────────────────────────
+--  Peripheral detection 
 
 local function findAllMatching(versions, filter)
     local found = {}
@@ -292,7 +292,7 @@ local function detectPeripherals(gameType, savedCfg)
     return result
 end
 
--- ─── Game type selection ──────────────────────────────────────────────────────
+--  Game type selection 
 
 local function selectGameType(savedId)
     if savedId then
@@ -318,7 +318,7 @@ local function selectGameType(savedId)
     return GAME_TYPES[n]
 end
 
--- ─── Write startup shim ───────────────────────────────────────────────────────
+--  Write startup shim 
 
 local function writeStartup(startupFile)
     local f = io.open("startup.lua", "w")
@@ -331,7 +331,7 @@ local function writeStartup(startupFile)
     return true
 end
 
--- ─── UPDATE MODE ─────────────────────────────────────────────────────────────
+--  UPDATE MODE 
 -- Called automatically by startup.lua on every boot.
 -- Silently re-downloads all files, then exits so startup continues to the game.
 
@@ -371,7 +371,7 @@ local function runUpdate()
     os.sleep(1)
 end
 
--- ─── FULL BOOTSTRAP MODE ──────────────────────────────────────────────────────
+--  FULL BOOTSTRAP MODE 
 
 local function runBootstrap()
     local savedCfg = loadConfig()
@@ -445,7 +445,7 @@ local function runBootstrap()
     os.reboot()
 end
 
--- ─── Entry point ─────────────────────────────────────────────────────────────
+--  Entry point 
 
 local args = { ... }
 if args[1] == "--update" then

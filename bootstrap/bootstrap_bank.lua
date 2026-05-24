@@ -266,7 +266,7 @@ local MACHINE_TYPES = {
     },
 }
 
--- ── UI helpers ────────────────────────────────────────────────────────────────
+--  UI helpers 
 
 local function clear()
     term.setBackgroundColor(colours.black)
@@ -310,7 +310,7 @@ local function header(mode)
     term.setTextColor(colours.white)
 end
 
--- ── Config ────────────────────────────────────────────────────────────────────
+--  Config 
 
 local function loadConfig()
     if not fs.exists(CONFIG_FILE) then return {} end
@@ -330,7 +330,7 @@ local function saveConfig(cfg)
     return true
 end
 
--- ── HTTP download ─────────────────────────────────────────────────────────────
+--  HTTP download 
 
 local function downloadFile(filename, silent)
     local url = BASE_URL .. filename
@@ -392,7 +392,7 @@ local function downloadAll(files, silent)
     return failed
 end
 
--- ── Peripheral detection ──────────────────────────────────────────────────────
+--  Peripheral detection 
 
 local function findAllMatching(versions, filter)
     local found = {}
@@ -457,7 +457,7 @@ local function detectPeripherals(machineType, savedCfg)
     return result
 end
 
--- ── Machine type selection ────────────────────────────────────────────────────
+--  Machine type selection 
 
 local function selectMachineType(savedId)
     if savedId then
@@ -484,7 +484,7 @@ local function selectMachineType(savedId)
     return MACHINE_TYPES[n]
 end
 
--- ── Startup shim ──────────────────────────────────────────────────────────────
+--  Startup shim 
 
 local function writeStartup(startupFile)
     local f = io.open("startup.lua", "w")
@@ -496,7 +496,7 @@ local function writeStartup(startupFile)
     return true
 end
 
--- ── UPDATE MODE ───────────────────────────────────────────────────────────────
+--  UPDATE MODE 
 -- Called automatically by startup.lua on every boot.
 -- Silently re-downloads all files, then exits so startup continues.
 
@@ -533,7 +533,7 @@ local function runUpdate()
     os.sleep(1)
 end
 
--- ── FULL BOOTSTRAP MODE ───────────────────────────────────────────────────────
+--  FULL BOOTSTRAP MODE 
 
 local function runBootstrap()
     local savedCfg = loadConfig()
@@ -600,7 +600,7 @@ local function runBootstrap()
     os.reboot()
 end
 
--- ── Entry point ───────────────────────────────────────────────────────────────
+--  Entry point 
 
 local args = { ... }
 if args[1] == "--update" then
