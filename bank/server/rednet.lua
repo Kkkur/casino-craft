@@ -4,7 +4,7 @@ local rednetHandler = {}
 
 local profiles = dofile("/bank/server/profiles.lua")
 local ledger   = dofile("/bank/server/ledger.lua")
-local vault    = nil   -- injected via init() — must use the already-initialised instance
+local vault    = nil   -- injected via init()
 
 local PROTOCOL = "bank_protocol"
 local HOSTNAME = "bank_server"
@@ -15,13 +15,17 @@ local _whitelist = {}
 local _rates     = {}
 local _locked    = {}
 local _alerts    = {}
-local _log       = nil   -- logger injected from init.lua
+local _log       = nil
+
+-- game float: net coins house has collected from game machines this session
+-- +N = house collected N more than paid out (coins sitting in vault as house profit)
+-- -N = house paid out N more than collected (house deficit)
+-- resets on server reboot; vault reconcile uses this to balance the equation
+local _gameFloat = 0
 
 local RATE_LIMIT   = 3
 local LOCKOUT_SECS = 10
 local COIN_ITEM    = "createdeco:brass_coin"
-
-local function L() return _log end
 
 function rednetHandler.init(token, whitelist, logger, vaultMod)
     _token   = token
@@ -134,39 +138,41 @@ end
 local _reconcilePending = false
 
 local function scheduleReconcile()
-    -- Defer reconcile by 2s so the ATM has time to physically move coins
-    -- after receiving the ledger confirmation. A flag prevents stacking.
     if not _reconcilePending then
         _reconcilePending = true
-        os.startTimer(2)   -- caught in run() loop
+        os.startTimer(2)
     end
 end
 
 local function reconcile()
     _reconcilePending = false
     local sum          = profiles.sumAll()
-    local ok, exp, act = vault.reconcile(sum, COIN_ITEM)
+    local ok, exp, act = vault.reconcile(sum, _gameFloat, COIN_ITEM)
     if not ok then
         ledger.recordReconcile(exp, act)
-        pushAlert("RECONCILE FAIL: expected=" .. exp .. " actual=" .. act .. " delta=" .. (act - exp))
+        pushAlert("RECONCILE FAIL: expected=" .. exp
+            .. " actual=" .. act
+            .. " delta=" .. (act - exp)
+            .. " gameFloat=" .. _gameFloat)
     else
-        if _log then _log.debug("Reconcile OK. coins=" .. act) end
+        if _log then _log.debug("Reconcile OK. coins=" .. act .. " gameFloat=" .. _gameFloat) end
     end
 end
 
--- Actions that are silent (no NET log, no debug request log)
 local SILENT_ACTIONS = { ping = true, top = true }
 
 local function handle(senderId, msg)
-    local action = msg.action
-    local player = msg.player
-    local amount = msg.amount
+    local action    = msg.action
+    local player    = msg.player
+    local amount    = msg.amount
+    local isGame    = (msg.source == "game")
 
     if _log and not SILENT_ACTIONS[action] then
         _log.debug("Request from ID " .. tostring(senderId)
             .. " action=" .. tostring(action)
             .. " player=" .. tostring(player)
-            .. " amount=" .. tostring(amount))
+            .. " amount=" .. tostring(amount)
+            .. (isGame and " [game]" or " [atm]"))
     end
 
     if action == "ping" then
@@ -182,6 +188,8 @@ local function handle(senderId, msg)
         local after  = profiles.add(player, amount)
         if not after then return { ok = false, err = "error" } end
         ledger.record(player, "add", amount, before, after)
+        -- game machine paid out: house float decreases (house owes less to vault)
+        if isGame then _gameFloat = _gameFloat - amount end
         if _log then _log.info("add " .. tostring(amount) .. " -> " .. player .. " balance=" .. after) end
         scheduleReconcile()
         return { ok = true, balance = after }
@@ -194,6 +202,8 @@ local function handle(senderId, msg)
             return { ok = false, err = err or "insufficient" }
         end
         ledger.record(player, "remove", amount, before, after)
+        -- game machine collected a bet: house float increases (house holds more)
+        if isGame then _gameFloat = _gameFloat + amount end
         if _log then _log.info("remove " .. tostring(amount) .. " -> " .. player .. " balance=" .. after) end
         scheduleReconcile()
         return { ok = true, balance = after }
@@ -225,14 +235,12 @@ function rednetHandler.run()
         _log.info("Computer ID: " .. os.getComputerID())
     end
 
-    -- Actions that are public read-only and skip auth entirely
     local PUBLIC_ACTIONS = { top = true }
 
     while true do
         local ev, p1, p2 = os.pullEvent()
 
         if ev == "timer" then
-            -- deferred reconcile fired
             if _reconcilePending then reconcile() end
 
         elseif ev == "rednet_message" then

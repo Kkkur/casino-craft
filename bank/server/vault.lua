@@ -1,5 +1,4 @@
 -- bank/server/vault.lua
-
 local vault = {}
 
 local _vault     = nil
@@ -79,13 +78,25 @@ function vault.pullFrom(sourceName, count, coinItem)
     return moved
 end
 
-function vault.reconcile(profilesSum, coinItem)
+-- profilesSum  = sum of all player ledger balances
+-- gameFloat    = net coins house has collected from game machines this session
+--                (positive = house up, negative = house paid out more than collected)
+-- Expected invariant: vault coins == profilesSum + gameFloat
+-- ATM transactions move physical coins so vault count changes naturally.
+-- Game transactions only move ledger balances, so gameFloat tracks the difference.
+function vault.reconcile(profilesSum, gameFloat, coinItem)
     assertInit()
+    coinItem  = coinItem  or "createdeco:brass_coin"
+    gameFloat = gameFloat or 0
     local actual   = vault.coinCount(coinItem)
-    local expected = profilesSum
+    local expected = profilesSum + gameFloat
     local ok       = (actual == expected)
     if _log and not ok then
-        _log.warn("Reconcile FAIL: expected=" .. expected .. " actual=" .. actual .. " delta=" .. (actual - expected))
+        _log.warn("Reconcile FAIL: expected=" .. expected
+            .. " actual=" .. actual
+            .. " delta=" .. (actual - expected)
+            .. " (profilesSum=" .. profilesSum
+            .. " gameFloat=" .. gameFloat .. ")")
     end
     return ok, expected, actual
 end
