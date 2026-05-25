@@ -1,95 +1,43 @@
--- blackjack/bj_machine.lua
--- Blackjack machine — main entry point
+-- games/blackjack/bj_machine.lua
+-- Blackjack machine -- main entry point
 -- GPU rendering via UILib/CardsLib/ChipsLib
--- Balance managed via BankLib (no physical barrels)
+-- Balance managed via BankLib
+-- Session/peripheral/network via GameLib + PDLib
 
-local BJ     = require("blackjack")
-local UI     = dofile("/libraries/games/UILib.lua")
-local Cards  = dofile("/libraries/games/CardsLib.lua")
-local Chips  = dofile("/libraries/games/ChipsLib.lua")
-local Bank   = dofile("/libraries/bank/BankLib.lua")
-local Logger = dofile("/libraries/logger/logger.lua")
+local BJ      = dofile("blackjack.lua")
+local UI      = dofile("/libraries/games/UILib.lua")
+local Cards   = dofile("/libraries/games/CardsLib.lua")
+local Chips   = dofile("/libraries/games/ChipsLib.lua")
+local Bank    = dofile("/libraries/bank/BankLib.lua")
+local Logger  = dofile("/libraries/logger/logger.lua")
+local GameLib = dofile("/libraries/games/GameLib.lua")
 
---  Layout config —
+--  Layout config
 
 local LAYOUT = {
-    -- Top bar
-    topBarHeight   = 14,    -- height of the top bar strip
-
-    -- Bottom action bar
-    barHeight      = 26,    -- height of the bottom bar
-
-    -- Dealer hand position
-    dealerY        = 22,    -- y position of dealer cards top edge
-    dealerLabelY   = 20,    -- y position of "DEALER" label
-
-    -- Player hand position
-    playerY        = 115,   -- y position of player cards top edge
-    playerLabelY   = 113,   -- y position of "YOU" label
-
-    -- Score bubble x offset from hand start (negative = left of cards)
+    topBarHeight   = 14,
+    barHeight      = 26,
+    dealerY        = 22,
+    dealerLabelY   = 20,
+    playerY        = 115,
+    playerLabelY   = 113,
     scoreOffsetX   = -28,
-
-    -- Card overlap (pixels between card left edges)
     cardOffsetX    = 22,
-
-    -- Divider line y position (between dealer and player zones)
     dividerY       = 100,
-
-    -- Bottom bar button layout
-    btnY           = 0,     -- y offset WITHIN the bottom bar (added to barY)
-    btnH           = 18,    -- button height
-    btnW           = 34,    -- standard button width
-
-    -- Chip row: auto-centered horizontally, y offset within bottom bar
-    chipBarOffsetY = 4,     -- y offset from top of bottom bar
-
-    -- Felt inner oval margins
-    feltInsetX     = 20,    -- horizontal inset for darker oval
-    feltInsetTop   = 4,     -- top inset for darker oval
-    feltInsetBot   = 10,    -- bottom inset for darker oval (above bar)
-
-    -- Result banner
-    resultW        = 110,   -- width of result banner
-    resultY        = 90,    -- y position of result banner
-
-    -- No-account panel
-    noAccountY     = 70,    -- y position of no-account error panel
-
-    -- Idle screen text y
-    idleY          = 88,    -- y of "BLACKJACK" on idle screen
+    btnY           = 0,
+    btnH           = 18,
+    btnW           = 34,
+    chipBarOffsetY = 4,
+    feltInsetX     = 20,
+    feltInsetTop   = 4,
+    feltInsetBot   = 10,
+    resultW        = 110,
+    resultY        = 90,
+    noAccountY     = 70,
+    idleY          = 88,
 }
 
---  Machine config 
-
-local CFG = {
-    managerId    = nil,
-    machineLabel = "Blackjack #1",
-    numDecks     = 6,
-    detectorName = nil,
-    monitorName  = nil,
-}
-
-local CONFIG_FILE = "machine_config.txt"
-
-local function loadMachineConfig()
-    if not fs.exists(CONFIG_FILE) then return end
-    local f = io.open(CONFIG_FILE, "r")
-    if not f then return end
-    for line in f:lines() do
-        local k, v = line:match("^(.-)=(.+)$")
-        if k then
-            if k == "managerId"    then CFG.managerId    = tonumber(v)      end
-            if k == "detectorSide" then CFG.detectorName = v                end
-            if k == "monitorSide"  then CFG.monitorName  = v                end
-            if k == "machineLabel" then CFG.machineLabel = v                end
-            if k == "numDecks"     then CFG.numDecks     = tonumber(v) or 6 end
-        end
-    end
-    f:close()
-end
-
---  Colors 
+--  Colors
 
 local C = {
     felt     = 0x1a6b35,
@@ -103,47 +51,24 @@ local C = {
     red      = 0xCC2222,
 }
 
---  Shared state 
+--  Shared state
+-- Shared table is passed to GameLib threads. GameLib writes currentPlayer and
+-- shutdown. The machine game loop reads them.
 
 local shared = {
-    shutdown      = false,
-    gameActive    = false,
-    currentPlayer = nil,
+    shutdown     = false,
+    currentPlayer = nil,   -- written by PDLib listener thread
+    rigFactor    = 0.7,    -- overwritten by GameLib.register and netListener
+    betRefunded  = false,  -- set true by netListener mid-hand refund
 }
 
---  Peripherals 
+--  Module-level handles (set in main)
 
-local detector = nil
-local gpu      = nil
-local ui       = nil
+local gpu    = nil
+local PDLib  = nil
+local ui     = nil
 
-local function initPeripherals()
-    -- GPU peripheral
-    if CFG.monitorName then
-        gpu = peripheral.wrap(CFG.monitorName)
-    else
-        gpu = peripheral.find("gpu") or peripheral.wrap("top")
-    end
-    assert(gpu and gpu.refreshSize, "GPU peripheral not found!")
-
-    -- Player detector (required — provides player name for BankLib)
-    if CFG.detectorName then
-        detector = peripheral.wrap(CFG.detectorName)
-    else
-        detector = peripheral.find("playerDetector") or peripheral.find("player_detector")
-    end
-    assert(detector, "Player detector not found! Re-run bootstrap.")
-
-    -- Wireless modem
-    local modem = peripheral.find("modem", function(_, m)
-        return m.isWireless and m.isWireless()
-    end)
-    if modem then rednet.open(peripheral.getName(modem)) end
-
-    ui = UI.new(gpu, 64)
-end
-
---  Derived layout (computed once after ui is ready) 
+--  Derived layout (set in initLayout)
 
 local sw, sh
 local BAR_Y
@@ -160,95 +85,27 @@ local function handX(n)
     return math.floor((sw - totalW) / 2)
 end
 
---  Bank helpers 
+--  Bank helpers
 
 local function getPlayerBalance(name)
     local bal, err = Bank.getBalance(name)
-    if not bal then Logger.warn("getBalance failed for " .. tostring(name) .. ": " .. tostring(err)) end
+    if not bal then Logger.warn("getBalance failed: " .. tostring(err)) end
     return bal, err
 end
 
 local function deductBet(name, amount)
-    local bal, err = Bank.remove(name, amount)
+    local bal, err = Bank.remove(name, amount, "game")
     if not bal then Logger.error("Bank.remove failed: " .. tostring(err)) end
     return bal, err
 end
 
 local function creditWin(name, amount)
-    local bal, err = Bank.add(name, amount)
+    local bal, err = Bank.add(name, amount, "game")
     if not bal then Logger.error("Bank.add failed: " .. tostring(err)) end
     return bal, err
 end
 
---  Player detector thread 
-
-local DETECT_RANGE = 2
-
-local function detectNearbyPlayer()
-    local ok, players = pcall(detector.getPlayersInRange, DETECT_RANGE)
-    if not ok or type(players) ~= "table" then return nil end
-    return players[1] or nil
-end
-
-local function playerDetectorThread()
-    while not shared.shutdown do
-        if not shared.gameActive then
-            shared.currentPlayer = detectNearbyPlayer()
-        end
-        os.sleep(2)
-    end
-end
-
---  Rednet 
-
-local function remoteLog(level, msg)
-    Logger.log(level, msg)
-    if CFG.managerId then
-        rednet.send(CFG.managerId, {
-            type = "log",
-            line = "[BJ#" .. os.getComputerID() .. "] [" .. level .. "] " .. tostring(msg),
-        }, "CASINO_LOG")
-    end
-end
-
-local function reportHand(result, bet, name)
-    if not CFG.managerId then return end
-    rednet.send(CFG.managerId, {
-        type = "hand_result", game = "blackjack",
-        player = name or "Unknown", result = result, bet = bet,
-    }, "CASINO_NET")
-end
-
-local function registerWithManager()
-    if not CFG.managerId then return end
-    rednet.send(CFG.managerId, {
-        type = "register", game = "blackjack", label = CFG.machineLabel,
-    }, "CASINO_NET")
-    local sid, msg = rednet.receive("CASINO_NET", 10)
-    if sid == CFG.managerId and type(msg) == "table" and msg.type == "config" then
-        if msg.machineLabel then CFG.machineLabel = msg.machineLabel end
-        if msg.numDecks     then CFG.numDecks     = msg.numDecks     end
-    end
-end
-
-local function rednetListener()
-    while not shared.shutdown do
-        if CFG.managerId then
-            local sid, msg = rednet.receive("CASINO_NET", 2)
-            if sid == CFG.managerId and type(msg) == "table" then
-                if msg.type == "config" then
-                    if msg.machineLabel then CFG.machineLabel = msg.machineLabel end
-                    if msg.numDecks     then CFG.numDecks     = msg.numDecks     end
-                end
-                if msg.type == "shutdown" then shared.shutdown = true end
-            end
-        else
-            os.sleep(2)
-        end
-    end
-end
-
---  Game state 
+--  Game state
 
 local deck, playerHand, dealerHand
 local balance    = 0
@@ -257,6 +114,9 @@ local gameState  = "idle"
 local resultMsg  = ""
 local playerName = "Guest"
 local chipsUI    = nil
+
+-- currentBet() is used by GameLib.netListener for mid-hand refunds.
+local function currentBet() return bet end
 
 local function newRound()
     playerHand = {}
@@ -267,11 +127,11 @@ local function newRound()
     resultMsg = ""
 end
 
-local function checkShoe()
+local function checkShoe(cfg)
     if not deck or #deck < 52 then
-        deck = BJ.newDeck(CFG.numDecks)
+        deck = BJ.newDeck(cfg.numDecks or 6)
         BJ.shuffle(deck)
-        remoteLog("INFO", "Shoe reshuffled (" .. CFG.numDecks .. " decks)")
+        Logger.info("Shoe reshuffled (" .. tostring(cfg.numDecks or 6) .. " decks)")
     end
 end
 
@@ -298,7 +158,7 @@ local function doHit()
     if BJ.isBust(playerHand) then
         dealerHand[2].faceUp = true
         gameState = "result"; resultMsg = "BUST!"
-        reportHand("loss", bet, playerName)
+        GameLib.reportHand(playerName, "loss", bet, 0, Logger)
     end
 end
 
@@ -317,7 +177,7 @@ local function doDouble()
     if BJ.isBust(playerHand) then
         dealerHand[2].faceUp = true
         gameState = "result"; resultMsg = "BUST!"
-        reportHand("loss", bet, playerName)
+        GameLib.reportHand(playerName, "loss", bet, 0, Logger)
         return
     end
     doStand()
@@ -338,11 +198,11 @@ local function doDealerPlay()
         local newBal = creditWin(playerName, payout)
         if newBal then balance = newBal end
     end
-    reportHand(result, bet, playerName)
+    GameLib.reportHand(playerName, result, bet, payout, Logger)
     gameState = "result"
 end
 
---  Drawing 
+--  Drawing
 
 local function drawFelt()
     local L = LAYOUT
@@ -442,7 +302,7 @@ local function drawIdleScreen()
 end
 
 local function redraw()
-    ui.buttons = {}
+    ui:clearButtons()
     ui:updateTopBar({ chips = balance, player = playerName })
     ui:drawTopBar()
     drawFelt()
@@ -478,12 +338,13 @@ local function redraw()
         drawResult()
     end
 
+    ui:drawOverlay()
     ui:sync()
 end
 
---  Input 
+--  Input
 
-local function onButton(id)
+local function onButton(id, cfg)
     if gameState == "betting" then
         if chipsUI:isChipButton(id) then
             chipsUI:handleButton(id, balance)
@@ -492,7 +353,7 @@ local function onButton(id)
         elseif id == "clrbet" then
             chipsUI:resetBet(); bet = 0; redraw()
         elseif id == "deal" and bet > 0 then
-            checkShoe(); startDeal(); redraw()
+            checkShoe(cfg); startDeal(); redraw()
             if gameState == "playing" and BJ.isBlackjack(playerHand) then
                 doStand(); doDealerPlay(); redraw()
             end
@@ -518,59 +379,120 @@ local function onButton(id)
     end
 end
 
---  Game loop 
+--  Game loop
 
-local function gameLoop()
+-- gameLoop runs the session lifecycle. It waits for PDLib to fire a
+-- playerClick (via shared.currentPlayer being set by the PDLib listener
+-- thread), fetches the player's balance, runs the inner hand loop, and
+-- resets to idle on departure or override.
+
+local function gameLoop(cfg)
     while not shared.shutdown do
-        local detected = shared.currentPlayer
+        -- Wait for a player session
+        local detected = PDLib.getCurrentPlayer()
         if not detected then
-            playerName = "Guest"; balance = 0; gameState = "idle"; redraw()
-            repeat os.sleep(0.5); detected = shared.currentPlayer
+            playerName = "Guest"; balance = 0; gameState = "idle"
+            redraw()
+            repeat
+                os.sleep(0.25)
+                detected = PDLib.getCurrentPlayer()
             until detected or shared.shutdown
             if shared.shutdown then break end
         end
 
         playerName = detected
-        shared.gameActive = true
+        PDLib.setGameActive(false)  -- not in a hand yet
+
+        -- If the server pushed a mid-session bet refund while we were idle,
+        -- clear the flag.
+        shared.betRefunded = false
 
         local bal, err = getPlayerBalance(playerName)
         if not bal then
             gameState = "no_account"; balance = 0; redraw()
-            repeat os.sleep(1)
-            until shared.currentPlayer ~= playerName or shared.shutdown
-            shared.gameActive = false
+            -- Wait until the player is gone or replaced
+            repeat os.sleep(0.5)
+            until PDLib.getCurrentPlayer() ~= playerName or shared.shutdown
         else
-            balance = bal; newRound(); redraw()
+            balance = bal
+            BJ.rigFactor = shared.rigFactor
+            newRound()
+            redraw()
+
+            PDLib.setGameActive(false)
 
             while not shared.shutdown do
-                if shared.currentPlayer ~= playerName and gameState == "betting" then break end
+                -- Check for player departure / override between hands
+                local current = PDLib.getCurrentPlayer()
+                if current ~= playerName and gameState == "betting" then
+                    break
+                end
+
+                -- Check if the server refunded our bet mid-hand and showed an
+                -- overlay -- break out of the hand loop to return to idle
+                if shared.betRefunded then
+                    shared.betRefunded = false
+                    bet = 0
+                    gameState = "idle"
+                    PDLib.setGameActive(false)
+                    break
+                end
+
                 local e, p, x, y = os.pullEvent()
+
                 if e == "tm_monitor_touch" then
                     local btnId = ui:hitButton(x, y)
-                    if btnId then ui:flashButton(btnId); onButton(btnId) end
+                    if btnId then
+                        ui:flashButton(btnId)
+                        -- Keep rigFactor in sync before each button action
+                        BJ.rigFactor = shared.rigFactor
+                        -- Mark game active when a hand is in progress
+                        if gameState == "playing" or gameState == "dealer" then
+                            PDLib.setGameActive(true)
+                        end
+                        onButton(btnId, cfg)
+                        -- After the hand resolves, mark game inactive
+                        if gameState == "result" or gameState == "betting" then
+                            PDLib.setGameActive(false)
+                        end
+                        PDLib.resetIdleTimer()
+                    end
+
+                elseif e == "timer" then
+                    if ui:handleOverlayTimer(p) then
+                        redraw()
+                    end
+
                 elseif e == "key" and p == keys.q then
                     shared.shutdown = true
                 end
             end
-
-            shared.gameActive = false
         end
     end
 end
 
---  Main 
+--  Main
 
 local function main()
     math.randomseed(os.time())
-    Logger.init("blackjack", "blackjack/logs")
-    loadMachineConfig()
+    Logger.init("blackjack", "games/blackjack/logs")
 
-    if not CFG.managerId then
-        local f = io.open("manager_id.txt", "r")
-        if f then CFG.managerId = tonumber(f:read("*l")); f:close() end
-    end
+    local cfg = GameLib.loadConfig("machine_config.txt")
+    -- Defaults for fields not in the config file
+    cfg.machineLabel = cfg.machineLabel or "Blackjack #1"
+    cfg.numDecks     = cfg.numDecks     or 6
+    cfg.rigFactor    = cfg.rigFactor    or 0.7
+    cfg.game         = cfg.game         or "blackjack"
 
-    initPeripherals()
+    -- Apply local rigFactor into shared so the net listener can update it
+    shared.rigFactor = cfg.rigFactor
+    BJ.rigFactor     = cfg.rigFactor
+
+    -- Init peripherals (GPU, PDLib, modem)
+    gpu, PDLib = GameLib.initPeripherals(cfg)
+
+    ui = UI.new(gpu, 64)
+
     initLayout()
 
     ui:setTopBar({
@@ -582,25 +504,47 @@ local function main()
 
     chipsUI = Chips.new(ui, 0, 0, function(newBet) bet = newBet end)
 
-    local bankOk, bankErr = Bank.connect()
-    if not bankOk then
-        remoteLog("WARN", "Bank connect failed: " .. tostring(bankErr))
-    end
+    -- Connect to bank (blocks until connected, shows status on screen)
+    GameLib.connectBank(Bank, ui, sw, sh, Logger)
 
-    registerWithManager()
+    -- Registration (non-blocking fallback if server is absent)
+    local serverRigFactor = GameLib.register(cfg, cfg.rigFactor, Logger)
+    shared.rigFactor = serverRigFactor
+    BJ.rigFactor     = serverRigFactor
 
     -- Boot splash
     ui:drawTopBar()
     ui:rect(0, ui.y0, sw, sh - ui.y0, 0x000000)
-    ui:textCentered(0, math.floor(sh/2) - 6, sw, CFG.machineLabel, C.gold, 0x000000, 1)
+    ui:textCentered(0, math.floor(sh/2) - 6, sw, cfg.machineLabel, C.gold, 0x000000, 1)
     ui:textCentered(0, math.floor(sh/2) + 4, sw, "Ready",          C.gray, 0x000000, 1)
     ui:sync()
     os.sleep(1.5)
 
     parallel.waitForAny(
-        function() gameLoop()             end,
-        function() rednetListener()       end,
-        function() playerDetectorThread() end
+        function() gameLoop(cfg) end,
+        function()
+            GameLib.netListener(shared, ui, Bank, currentBet, Logger)
+        end,
+        function()
+            PDLib.listenerThread(shared, {
+                onPlayerClick = function(username, prev)
+                    -- If a different player overrides mid-session, PDLib has
+                    -- already updated getCurrentPlayer(). The game loop will
+                    -- detect the mismatch on its next iteration.
+                    shared.currentPlayer = username
+                    Logger.info("Player click: " .. tostring(username)
+                        .. (prev and (" (prev: " .. prev .. ")") or ""))
+                end,
+                onPlayerLeave = function(username)
+                    Logger.info("Player left: " .. tostring(username))
+                end,
+                onIdleTimeout = function(username)
+                    Logger.info("Idle timeout: " .. tostring(username))
+                    -- currentPlayer is already nil inside PDLib at this point
+                    shared.currentPlayer = nil
+                end,
+            })
+        end
     )
 
     Logger.info("Machine shut down cleanly.")

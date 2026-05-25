@@ -37,4 +37,4 @@ term.setTextColor(colours.lime)
 print("Config OK — launching...")
 os.sleep(1)
 
-shell.run("blackjack/bj_machine.lua")
+shell.run("games/blackjack/bj_machine.lua")
