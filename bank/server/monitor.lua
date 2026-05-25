@@ -9,9 +9,11 @@ local Currency = dofile("/libraries/currencylib.lua")
 local rednetHandler = nil
 local _log          = nil
 local _vault        = nil
+local _casinoNet    = nil
 
-function monitor.setRednet(rh) rednetHandler = rh end
-function monitor.setVault(v)   _vault = v         end
+function monitor.setRednet(rh)    rednetHandler = rh end
+function monitor.setVault(v)      _vault = v         end
+function monitor.setCasinoNet(cn) _casinoNet = cn    end
 
 local _mon  = nil
 local _W    = 0
@@ -31,7 +33,9 @@ function monitor.init(peripheralName, logger)
     end
     _mon.setTextScale(0.5)
     _W, _H = _mon.getSize()
-    if _log then _log.info("Monitor init: " .. peripheralName .. " size=" .. _W .. "x" .. _H) end
+    -- Right panel starts just past the midpoint, with a 1-column divider gap.
+    _splitX = math.floor(_W / 2) + 2
+    if _log then _log.info("Monitor init: " .. peripheralName .. " size=" .. _W .. "x" .. _H .. " splitX=" .. _splitX) end
 end
 
 -- draw primitives 
@@ -74,6 +78,110 @@ local function drawBtn(label, x, y, w, bg, fg)
     _mon.setBackgroundColor(colours.black)
     _mon.setTextColor(colours.white)
     regBtn(label, x, y, x + w - 1, y)
+end
+
+-- Like writeAt but clamps text to not exceed column maxX (1-based inclusive).
+local function writeAtC(x, y, text, fg, bg, maxX)
+    maxX = maxX or _W
+    local maxLen = maxX - x + 1
+    if maxLen <= 0 then return end
+    if #text > maxLen then text = text:sub(1, maxLen) end
+    writeAt(x, y, text, fg, bg)
+end
+
+-- casino dashboard drawn in the right half of the monitor.
+-- lx: first column of the right panel (1-based).
+local function drawCasinoDashboard(lx)
+    if not _casinoNet then return end
+
+    local rw       = _W - lx + 1
+    local machines = _casinoNet.getMachines()
+    local netChips = _casinoNet.getNetChips()
+    local inPanic  = _casinoNet.isInPanic()
+
+    local function rfill(y, bg)
+        _mon.setCursorPos(lx, y)
+        _mon.setBackgroundColor(bg)
+        _mon.write(string.rep(" ", rw))
+        _mon.setBackgroundColor(colours.black)
+    end
+
+    -- Header row 1 (replaces the full-width bank header on this half)
+    rfill(1, colours.grey)
+    local hdr = "\5 CASINO \5"
+    _mon.setCursorPos(lx + math.floor((rw - #hdr) / 2), 1)
+    _mon.setBackgroundColor(colours.grey)
+    _mon.setTextColor(colours.white)
+    _mon.write(hdr)
+    _mon.setBackgroundColor(colours.black)
+
+    -- Status row 2: net_chips and panic state
+    rfill(2, colours.black)
+    local netStr    = "Net: " .. netChips .. "c"
+    local statusStr = inPanic and "PANIC" or "NORMAL"
+    local statusFg  = inPanic and colours.red or colours.lime
+    local function writeR(x, y, text, fg)
+        if x > _W then return end
+        _mon.setCursorPos(x, y)
+        _mon.setBackgroundColor(colours.black)
+        _mon.setTextColor(fg)
+        local maxLen = _W - x + 1
+        if #text > maxLen then text = text:sub(1, maxLen) end
+        _mon.write(text)
+        _mon.setBackgroundColor(colours.black)
+        _mon.setTextColor(colours.white)
+    end
+    writeR(lx + 1, 2, netStr, colours.yellow)
+    writeR(_W - #statusStr, 2, statusStr, statusFg)
+
+    -- Column header row 3
+    rfill(3, colours.grey)
+    writeR(lx + 1, 3, "MACHINE", colours.lightGrey)
+    writeR(lx + 10, 3, "PLY",    colours.lightGrey)
+    writeR(lx + 14, 3, "IN",     colours.lightGrey)
+    writeR(lx + 19, 3, "OUT",    colours.lightGrey)
+    writeR(lx + 24, 3, "NET",    colours.lightGrey)
+
+    -- Machine rows starting at row 4
+    local row = 4
+    local sorted = {}
+    for _, m in pairs(machines) do table.insert(sorted, m) end
+    table.sort(sorted, function(a, b) return (a.label or "") < (b.label or "") end)
+
+    for _, m in ipairs(sorted) do
+        if row > _H - 1 then break end
+        rfill(row, colours.black)
+
+        local dotFg = m.online and colours.lime or colours.grey
+        local net   = m.chipsIn - m.chipsOut
+        local netFg = net >= 0 and colours.lime or colours.red
+
+        _mon.setCursorPos(lx + 1, row)
+        _mon.setBackgroundColor(colours.black)
+        _mon.setTextColor(dotFg)
+        _mon.write("\7")
+
+        local label = (m.label or "?"):sub(1, 8)
+        writeR(lx + 3,  row, label,              colours.cyan)
+        writeR(lx + 12, row, tostring(m.plays),   colours.white)
+        writeR(lx + 16, row, tostring(m.chipsIn),  colours.white)
+        writeR(lx + 21, row, tostring(m.chipsOut), colours.white)
+        writeR(lx + 26, row, tostring(net),        netFg)
+
+        row = row + 1
+    end
+
+    for y = row, _H - 1 do rfill(y, colours.black) end
+end
+
+-- vertical divider between left and right panels
+local function drawDivider(lx)
+    for y = 1, _H do
+        _mon.setCursorPos(lx - 1, y)
+        _mon.setBackgroundColor(colours.grey)
+        _mon.write(" ")
+        _mon.setBackgroundColor(colours.black)
+    end
 end
 
 -- header 
@@ -171,6 +279,10 @@ local function drawSecurityTab()
     for y = row, _H - 1 do fill(y, colours.black) end
 end
 
+-- _splitX is the first column of the right (casino) panel.
+-- Computed once in monitor.init() after we know _W.
+local _splitX = 1
+
 local function drawStatusBar()
     fill(_H, colours.grey)
     local top1  = profiles.top(1)
@@ -179,21 +291,37 @@ local function drawStatusBar()
     local spurs   = Currency.chipsToSpurs(chips)
     local vStr    = "Vault: " .. chips .. "c | " .. Currency.format(spurs, 2)
     local balStr  = #top1 > 0 and ("Top: " .. top1[1].player .. " " .. top1[1].balance .. "c") or "No balances"
+    -- truncate balStr so it stays in the left half
+    local maxLeft = _splitX - 3
+    if #balStr > maxLeft then balStr = balStr:sub(1, maxLeft) end
     writeAt(2,          _H, balStr, colours.white, colours.grey)
     writeAt(_W - #vStr, _H, vStr,  colours.lime,  colours.grey)
 end
 
--- full redraw 
+-- full redraw
 
 local function redraw()
     _mon.clear()
     _mon.setBackgroundColor(colours.black)
     _buttons = {}
+
+    -- Left half: existing bank tabs (header, tab bar, content, status bar).
+    -- Drawing functions use _W internally; we temporarily narrow _W so text
+    -- does not bleed into the right panel, then restore it.
+    local fullW = _W
+    _W = _splitX - 2   -- leave one column gap for the divider
+
     drawHeader()
     drawTabs()
     if _tab == TAB_LEDGER then drawLedgerTab()
     else drawSecurityTab() end
     drawStatusBar()
+
+    _W = fullW
+
+    -- Divider and right half.
+    drawDivider(_splitX)
+    drawCasinoDashboard(_splitX)
 end
 
 -- touch handler 

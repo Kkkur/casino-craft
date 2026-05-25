@@ -9,6 +9,7 @@ local profiles      = dofile("/bank/server/profiles.lua")
 local rednetHandler = dofile("/bank/server/rednet.lua")
 local monitorMod    = dofile("/bank/server/monitor.lua")
 local cliMod        = dofile("/bank/server/cli.lua")
+local casinoNet     = dofile("/bank/server/casino_net.lua")
 
 -- load config
 
@@ -69,6 +70,10 @@ ledger.record("SERVER", "startup", nil, nil, nil)
 
 logger.info("Initialising CLI...")
 cliMod.init(rednetHandler, vault, profiles, ledger, logger)
+
+logger.info("Initialising casino net...")
+casinoNet.init(cfg, logger)
+monitorMod.setCasinoNet(casinoNet)
 logger.info("Ready.")
 
 -- parallel runners
@@ -92,4 +97,8 @@ local function runCLI()
     -- CLI exited cleanly; rednet and monitor continue via waitForAll
 end
 
-parallel.waitForAll(runRednet, runMonitor, runCLI)
+local function runCasinoNet()
+    casinoNet.run()
+end
+
+parallel.waitForAll(runRednet, runMonitor, runCLI, runCasinoNet)
