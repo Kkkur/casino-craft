@@ -19,6 +19,7 @@ local MACHINE_TYPES = {
             "bank/server/rednet.lua",
             "bank/server/monitor.lua",
             "bank/server/cli.lua",
+            "bank/server/casino_net.lua",
         },
         startup = "bank/server/init.lua",
         peripherals = {
@@ -106,6 +107,15 @@ local MACHINE_TYPES = {
             if cfg.monitorSide then
                 cfg.monitorScale = tonumber(promptFn("Monitor text scale (0.5-1)", cfg.monitorScale or 0.5))
             end
+
+            term.setTextColor(colours.cyan)
+            print("\nLoss prevention:")
+            term.setTextColor(colours.white)
+            printInfo("panicBelow:    if net_chips drops below this, all machines get rigFactor=1.0")
+            printInfo("recoveryAbove: if net_chips rises above this while in panic, panic is lifted")
+            cfg.panicBelow    = tonumber(promptFn("Panic threshold (chips)", cfg.panicBelow    or -200))
+            cfg.recoveryAbove = tonumber(promptFn("Recovery threshold (chips)", cfg.recoveryAbove or 300))
+            printOk("panicBelow=" .. tostring(cfg.panicBelow) .. "  recoveryAbove=" .. tostring(cfg.recoveryAbove))
 
             return cfg
         end,

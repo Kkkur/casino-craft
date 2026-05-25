@@ -9,18 +9,32 @@ local GAME_TYPES = {
         id    = "blackjack",
         label = "Blackjack Table",
         files = {
-            "blackjack/blackjack.lua",
-            "blackjack/bj_machine.lua",
-            "blackjack/bj_startup.lua",
+            "games/blackjack/blackjack.lua",
+            "games/blackjack/bj_machine.lua",
+            "games/blackjack/bj_startup.lua",
             "libraries/games/UILib.lua",
             "libraries/games/CardsLib.lua",
             "libraries/games/ChipsLib.lua",
+            "libraries/games/PDLib.lua",
+            "libraries/games/GameLib.lua",
             "libraries/bank/BankLib.lua",
             "libraries/logger/logger.lua",
             "libraries/currencylib.lua",
         },
-        startup = "blackjack/bj_startup.lua",
+        startup = "games/blackjack/bj_startup.lua",
+        -- Config keys written to machine_config.txt for this game type.
+        -- GameLib.loadConfig reads these on boot.
+        defaultConfig = {
+            game      = "blackjack",
+            rigFactor = 0.7,
+        },
         peripherals = {
+            {
+                label    = "GPU (Tom's Peripherals)",
+                versions = { "gpu" },
+                key      = "monitorSide",
+                optional = false,
+            },
             {
                 label    = "Player Detector",
                 versions = { "playerDetector", "player_detector" },
@@ -425,7 +439,16 @@ local function runBootstrap()
 
     -- Save config (only on full success)
     local newCfg = { gameType = gameType.id }
+    -- Merge peripheral detection results
     for k, v in pairs(periphCfg) do newCfg[k] = v end
+    -- Merge game-type defaults (game, rigFactor, etc.)
+    -- Preserve any existing values so a re-bootstrap does not clobber edits.
+    for k, v in pairs(gameType.defaultConfig or {}) do
+        if newCfg[k] == nil then newCfg[k] = v end
+    end
+    -- Prompt for machine label
+    local defaultLabel = savedCfg.machineLabel or (gameType.label .. " #" .. os.getComputerID())
+    newCfg.machineLabel = prompt("Machine label", defaultLabel)
     saveConfig(newCfg)
     printOk("Config saved.")
 
