@@ -4,7 +4,7 @@
 -- Balance managed via BankLib
 -- Session/peripheral/network via GameLib + PDLib
 
-local BJ      = dofile("blackjack.lua")
+local BJ      = dofile("/games/blackjack/blackjack.lua")
 local UI      = dofile("/libraries/games/UILib.lua")
 local Cards   = dofile("/libraries/games/CardsLib.lua")
 local Chips   = dofile("/libraries/games/ChipsLib.lua")
