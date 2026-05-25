@@ -31,7 +31,7 @@ local GAME_TYPES = {
         peripherals = {
             {
                 label    = "GPU (Tom's Peripherals)",
-                versions = { "gpu" },
+                versions = { "tm_gpu" },
                 key      = "monitorSide",
                 optional = false,
             },
