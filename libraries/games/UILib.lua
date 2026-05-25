@@ -12,7 +12,8 @@ function UILib.new(gpu, size)
     self.gpu     = gpu   -- peripheral IS the drawing context, no createWindow needed
     self.ctx     = gpu   -- alias so existing ctx calls work unchanged
     self.size    = size or 64
-    self.buttons = {}
+    self.buttons      = {}   -- id -> button data
+    self.buttonOrder  = {}   -- ordered list of ids for deterministic hit testing
 
     gpu.refreshSize()
     gpu.setSize(self.size)
@@ -84,7 +85,7 @@ function UILib:text(x, y, str, fg, bg, size)
 end
 
 function UILib:textCentered(x, y, w, str, fg, bg, size)
-    local tw = self.ctx.getTextLength(str, size or 1)
+    local tw = self.ctx.getTextLength(str, size or 1) or (#str * 6)
     local tx = x + math.floor((w - tw) / 2)
     self:text(tx, y, str, fg, bg, size)
 end
@@ -163,6 +164,9 @@ end
 --  Buttons 
 
 function UILib:button(id, opts)
+    if not self.buttons[id] then
+        table.insert(self.buttonOrder, id)
+    end
     self.buttons[id] = {
         x           = opts.x,
         y           = opts.y,
@@ -178,6 +182,11 @@ function UILib:button(id, opts)
         enabled     = true,
     }
     self:drawButton(id)
+end
+
+function UILib:clearButtons()
+    self.buttons     = {}
+    self.buttonOrder = {}
 end
 
 function UILib:drawButton(id)
@@ -210,8 +219,11 @@ function UILib:flashButton(id, flashBg, duration)
 end
 
 function UILib:hitButton(x, y)
-    for id, b in pairs(self.buttons) do
-        if b.enabled
+    -- Overlays block all input while active.
+    if self:hasOverlay() then return nil end
+    for _, id in ipairs(self.buttonOrder) do
+        local b = self.buttons[id]
+        if b and b.enabled
         and x >= b.x and x <= b.x + b.w
         and y >= b.y and y <= b.y + b.h then
             return id
@@ -238,5 +250,157 @@ function UILib:handleEvent(handlers)
 end
 
 function UILib:getSize() return self.sw, self.sh end
+
+-- -------------------------------------------------------------------------- --
+--  Overlay system
+--
+--  Three overlay types:
+--    "error"   - red border, blocks all input, auto or manual dismiss
+--    "message" - color-configurable border, blocks all input
+--    "toast"   - small non-blocking strip at bottom, auto-dismiss only
+--
+--  drawOverlay() must be called at the end of every machine redraw(), before
+--  sync(). GameLib's session runner enforces this by wrapping redraw.
+--
+--  While any blocking overlay (error or message) is active, hitButton()
+--  returns nil so the game loop receives no input events.
+-- -------------------------------------------------------------------------- --
+
+local OVERLAY_COLORS = {
+    red    = { border = 0xCC2222, bg = 0x1a0000, title = 0xFF4444 },
+    orange = { border = 0xFF6600, bg = 0x1a0a00, title = 0xFF9944 },
+    gold   = { border = 0xC9A84C, bg = 0x1a1500, title = 0xFFDD44 },
+    green  = { border = 0x22CC44, bg = 0x001a08, title = 0x44FF88 },
+    blue   = { border = 0x2244CC, bg = 0x00081a, title = 0x4488FF },
+}
+local DEFAULT_OVERLAY_COLOR = "gold"
+
+local function resolveColor(name)
+    return OVERLAY_COLORS[name] or OVERLAY_COLORS[DEFAULT_OVERLAY_COLOR]
+end
+
+-- Internal overlay state, stored on the instance.
+local function initOverlayState(self)
+    if not self._overlay then
+        self._overlay = {
+            kind        = nil,    -- "error" | "message" | "toast" | nil
+            title       = "",
+            msg         = "",
+            colorName   = "gold",
+            dismissTimer = nil,
+        }
+    end
+end
+
+-- Returns true if any overlay is currently active.
+function UILib:hasOverlay()
+    return self._overlay ~= nil and self._overlay.kind ~= nil
+end
+
+-- Returns true specifically if a blocking overlay (error or message) is up.
+function UILib:isBlocked()
+    if not self._overlay then return false end
+    return self._overlay.kind == "error" or self._overlay.kind == "message"
+end
+
+-- Show a red error box. Blocks all input.
+-- duration: seconds before auto-dismiss, or nil for permanent.
+function UILib:showError(title, msg, duration)
+    initOverlayState(self)
+    self._overlay.kind      = "error"
+    self._overlay.title     = title or "ERROR"
+    self._overlay.msg       = msg   or ""
+    self._overlay.colorName = "red"
+    self._overlay.dismissTimer = duration and os.startTimer(duration) or nil
+end
+
+-- Show a blocking message box with a named color.
+-- color: "red" | "orange" | "gold" | "green" | "blue"
+-- duration: seconds before auto-dismiss, or nil for permanent.
+function UILib:showMessage(title, msg, color, duration)
+    initOverlayState(self)
+    self._overlay.kind      = "message"
+    self._overlay.title     = title or ""
+    self._overlay.msg       = msg   or ""
+    self._overlay.colorName = color or DEFAULT_OVERLAY_COLOR
+    self._overlay.dismissTimer = duration and os.startTimer(duration) or nil
+end
+
+-- Show a non-blocking toast at the bottom of the screen.
+-- Always auto-dismisses; duration defaults to 4 seconds.
+function UILib:showToast(msg, color, duration)
+    initOverlayState(self)
+    self._overlay.kind      = "toast"
+    self._overlay.msg       = msg or ""
+    self._overlay.colorName = color or "gold"
+    self._overlay.dismissTimer = os.startTimer(duration or 4)
+end
+
+-- Dismiss whatever overlay is currently showing.
+function UILib:clearOverlay()
+    if self._overlay then
+        self._overlay.kind         = nil
+        self._overlay.dismissTimer = nil
+    end
+end
+
+-- Call this from the listener thread's timer handler.
+-- Returns true if the timer matched and the overlay was cleared.
+function UILib:handleOverlayTimer(timerId)
+    if self._overlay
+    and self._overlay.dismissTimer == timerId then
+        self:clearOverlay()
+        return true
+    end
+    return false
+end
+
+-- Draw the active overlay on top of whatever is already on screen.
+-- Call at the very end of every redraw(), before sync().
+function UILib:drawOverlay()
+    if not self:hasOverlay() then return end
+    local ov = self._overlay
+
+    if ov.kind == "toast" then
+        -- Small strip pinned to the bottom of the playfield.
+        local toastH = 14
+        local toastY = self.sh - toastH - 2
+        local toastX = 10
+        local toastW = self.sw - 20
+        local col    = resolveColor(ov.colorName)
+        self:rect(toastX, toastY, toastW, toastH, col.bg)
+        self:border(toastX, toastY, toastW, toastH, col.border, 1)
+        self:textCentered(toastX, toastY + 3, toastW, ov.msg, 0xFFFFFF, col.bg, 1)
+        return
+    end
+
+    -- Blocking overlay (error or message): centered panel.
+    local col    = resolveColor(ov.colorName)
+    local panW   = math.min(self.sw - 20, 160)
+    local panH   = 40
+    local panX   = math.floor((self.sw - panW) / 2)
+    local panY   = math.floor((self.sh - panH) / 2)
+
+    -- Dark scrim behind the panel so the game is visually obscured.
+    -- Draw a semi-transparent feel by overlaying a dark rect at 60% width
+    -- on each side; full blackout is cleaner on pixel GPUs.
+    self:rect(0, 0, self.sw, self.sh, 0x000000)
+
+    -- Panel itself.
+    self:rect(panX, panY, panW, panH, col.bg)
+    self:border(panX, panY, panW, panH, col.border, 2)
+
+    -- Title row.
+    self:textCentered(panX, panY + 6, panW, ov.title, col.title, col.bg, 1)
+
+    -- Message row (word-wrapped to panel width if needed).
+    -- For simplicity we truncate to one line; multi-line can be added later.
+    local maxChars = math.floor(panW / 6)
+    local display  = #ov.msg > maxChars and ov.msg:sub(1, maxChars - 3) .. "..." or ov.msg
+    self:textCentered(panX, panY + 20, panW, display, 0xCCCCCC, col.bg, 1)
+
+    -- Small dismiss hint at the bottom of the panel.
+    self:textCentered(panX, panY + 32, panW, "[ server or timeout ]", 0x555555, col.bg, 1)
+end
 
 return UILib

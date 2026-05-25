@@ -192,9 +192,9 @@ end
 
 local function playerDetectorThread()
     while not shared.shutdown do
-        -- Always refresh the detected player, even during an active game,
-        -- so the game loop can react to the player leaving mid-round.
-        shared.currentPlayer = detectNearbyPlayer()
+        if not shared.gameActive then
+            shared.currentPlayer = detectNearbyPlayer()
+        end
         os.sleep(2)
     end
 end
@@ -543,7 +543,7 @@ local function gameLoop()
             balance = bal; newRound(); redraw()
 
             while not shared.shutdown do
-                if shared.currentPlayer ~= playerName then break end
+                if shared.currentPlayer ~= playerName and gameState == "betting" then break end
                 local e, p, x, y = os.pullEvent()
                 if e == "tm_monitor_touch" then
                     local btnId = ui:hitButton(x, y)
