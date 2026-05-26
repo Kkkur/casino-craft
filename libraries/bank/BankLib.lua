@@ -24,6 +24,7 @@ local _txTimeout    = TX_TIMEOUT
 local _computerID   = os.getComputerID()
 local _log          = nil
 local _ready        = false
+local _reqCounter   = 0   -- monotonic counter for request IDs
 
 -- internal helpers
 
@@ -68,19 +69,36 @@ local function resolveServer()
     return id
 end
 
+-- Generate a unique request ID for this message so sendAndWait can match
+-- exactly the reply that belongs to this request, ignoring stale responses.
+local function nextReqID()
+    _reqCounter = _reqCounter + 1
+    return _computerID .. "_" .. _reqCounter
+end
+
 local function sendAndWait(serverId, msg, timeout)
     local ts = os.epoch("utc")
+    -- Stamp every outgoing message with identity and a unique request ID.
     msg.computerID = _computerID
     msg.token      = _token
     msg.ts         = ts
     msg.checksum   = checksum(msg.action, msg.amount, ts)
+    msg.reqID      = nextReqID()   -- used to match the reply
+
     rednet.send(serverId, msg, _protocol)
+
     local timer = os.startTimer(timeout)
     while true do
         local ev, p1, p2 = os.pullEvent()
         if ev == "rednet_message" and p1 == serverId then
-            os.cancelTimer(timer)
-            return p2
+            -- Only accept the reply that echoes our reqID.
+            -- Stale replies (from previous calls) will have a different reqID
+            -- and are silently dropped here; they will time out on their own timer.
+            if type(p2) == "table" and p2.reqID == msg.reqID then
+                os.cancelTimer(timer)
+                return p2
+            end
+            -- Wrong reqID — keep waiting.
         end
         if ev == "timer" and p1 == timer then
             return nil
@@ -134,12 +152,14 @@ local function transaction(msg, source)
     end
     local serverId = resolveServer()
     if not serverId then return nil, "server_not_found" end
-    -- step 1: ping
+
+    -- step 1: ping (use sendAndWait so reqID matching works cleanly)
     local pingReply = sendAndWait(serverId, { action = "ping" }, _pingTimeout)
     if not pingReply or not pingReply.ok then
         log("warn", "transaction: ping failed before " .. tostring(msg.action))
         return nil, "server_unreachable"
     end
+
     -- step 2: send transaction, await confirmation
     local reply = sendAndWait(serverId, msg, _txTimeout)
     if reply == nil then
@@ -190,21 +210,11 @@ end
 function bank.top(limit)
     local serverId = resolveServer()
     if not serverId then return {}, "server_not_found" end
-    rednet.send(serverId, { action = "top", limit = limit or 10 }, _protocol)
-    local timer = os.startTimer(_txTimeout)
-    while true do
-        local ev, p1, p2 = os.pullEvent()
-        if ev == "rednet_message" and p1 == serverId then
-            os.cancelTimer(timer)
-            local reply = p2
-            if not reply    then return {}, "timeout"            end
-            if not reply.ok then return {}, reply.err or "error" end
-            return reply.top
-        end
-        if ev == "timer" and p1 == timer then
-            return {}, "timeout"
-        end
-    end
+    -- Use sendAndWait so computerID and reqID are stamped correctly.
+    local reply = sendAndWait(serverId, { action = "top", limit = limit or 10 }, _txTimeout)
+    if not reply    then return {}, "timeout"            end
+    if not reply.ok then return {}, reply.err or "error" end
+    return reply.top
 end
 
 return bank

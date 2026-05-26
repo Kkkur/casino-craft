@@ -289,6 +289,7 @@ function rednetHandler.run()
                     end
                 end
 
+                reply.reqID = msg.reqID
                 rednet.send(senderId, reply, PROTOCOL)
                 if _log and not silent then
                     _log.net("SEND", senderId, PROTOCOL, reply.ok and "ok" or "err:" .. tostring(reply.err))
